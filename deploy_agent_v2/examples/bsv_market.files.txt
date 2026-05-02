@@ -1,0 +1,35 @@
+# Deploy manifest example for the current repo.
+# Keep data/log/.env.market out of this list.
+app.js
+block_headers_service.js
+bhs_domain.js
+catalog_domain.js
+chat_domain.js
+demo.css
+frontend_event_gateway.js
+index.html
+local_state_domain.js
+market_ctl.sh
+market_db.js
+market_db_writer.js
+order_domain.js
+order_state_machine.js
+p2p_height_guard.js
+p2p_node_runtime.js
+p2p_node_selector.js
+p2p_protocol.js
+p2p_transport_core.js
+profile_domain.js
+read_db_pool.js
+resync_reset_service.js
+server_market.js
+steward_subprocess.js
+sync_business_pipeline.js
+sync_domain.js
+sync_domain_adapters.js
+sync_worker_runtime.js
+wallet.js
+wallet_read_domain.js
+wallet_tx_domain.js
+package.json
+package-lock.json

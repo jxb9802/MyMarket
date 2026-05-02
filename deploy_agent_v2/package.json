@@ -1,0 +1,12 @@
+{
+  "name": "deploy-agent-v2",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "description": "Cross-platform deployment agent for app install/start/restart/log retrieval.",
+  "main": "agent_server.js",
+  "scripts": {
+    "start": "node agent_server.js",
+    "sample": "node sample_app/server.js"
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "name": "sample-app",
+  "deploymentSubdir": ".",
+  "persistentPaths": [],
+  "env": {
+    "SAMPLE_APP_PORT": "18889"
+  },
+  "commands": {
+    "start": {
+      "command": {
+        "default": [
+          "node",
+          "server.js"
+        ]
+      },
+      "cwd": ".",
+      "waitFor": {
+        "type": "http",
+        "url": "http://127.0.0.1:18889",
+        "timeoutMs": 10000
+      }
+    }
+  },
+  "logFiles": []
+}

@@ -1,0 +1,112 @@
+{
+  "name": "bsv-market",
+  "deploymentSubdir": ".",
+  "persistentPaths": [
+    "data",
+    "log",
+    ".env.market"
+  ],
+  "env": {},
+  "commands": {
+    "ensure_node": {
+      "command": {
+        "default": [
+          "node",
+          "deploy_agent_v2/remote_helpers/ensure_node.js",
+          "--version",
+          "24.14.0",
+          "--install-dir",
+          ".deploy/node"
+        ]
+      },
+      "cwd": ".",
+      "timeoutMs": 1200000
+    },
+    "install": {
+      "command": {
+        "windows": [
+          "node",
+          "deploy_agent_v2/remote_helpers/run_with_managed_node.js",
+          "cmd.exe",
+          "/d",
+          "/s",
+          "/c",
+          "call npm install"
+        ],
+        "linux": [
+          "node",
+          "deploy_agent_v2/remote_helpers/run_with_managed_node.js",
+          "npm",
+          "install"
+        ],
+        "darwin": [
+          "node",
+          "deploy_agent_v2/remote_helpers/run_with_managed_node.js",
+          "npm",
+          "install"
+        ]
+      },
+      "cwd": ".",
+      "timeoutMs": 1200000
+    },
+    "start": {
+      "command": {
+        "windows": [
+          "node",
+          "deploy_agent_v2/remote_helpers/run_with_managed_node.js",
+          "cmd.exe",
+          "/d",
+          "/s",
+          "/c",
+          "call start.bat"
+        ],
+        "linux": [
+          "node",
+          "deploy_agent_v2/remote_helpers/run_with_managed_node.js",
+          "bash",
+          "./market_ctl.sh",
+          "start"
+        ],
+        "darwin": [
+          "node",
+          "deploy_agent_v2/remote_helpers/run_with_managed_node.js",
+          "bash",
+          "./market_ctl.sh",
+          "start"
+        ]
+      },
+      "cwd": ".",
+      "waitFor": {
+        "type": "http",
+        "url": "http://127.0.0.1:8091/api/state-lite",
+        "timeoutMs": 30000
+      }
+    },
+    "stop": {
+      "command": {
+        "windows": [
+          "cmd.exe",
+          "/d",
+          "/s",
+          "/c",
+          "taskkill /F /IM node.exe"
+        ],
+        "linux": [
+          "bash",
+          "./market_ctl.sh",
+          "stop"
+        ],
+        "darwin": [
+          "bash",
+          "./market_ctl.sh",
+          "stop"
+        ]
+      },
+      "cwd": "."
+    }
+  },
+  "logFiles": [
+    "log/bsv_market_run.log",
+    "log/market-debug.log"
+  ]
+}

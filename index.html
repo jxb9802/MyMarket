@@ -1,0 +1,1054 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BSV Market</title>
+    <link rel="stylesheet" href="./demo.css?v=20260427-shipment-info-fee-fallback" />
+  </head>
+  <body>
+    <div class="orb orb-a"></div>
+    <div class="orb orb-b"></div>
+
+    <main class="app-shell">
+      <header class="topbar reveal">
+        <div class="topbar-side topbar-side-left">
+          <section class="tabs topbar-role-tabs">
+            <button class="tab active" data-role="buyer" data-i18n="buyer_tab">Buyer</button>
+            <button class="tab" data-role="seller" data-i18n="seller_tab">Seller</button>
+          </section>
+        </div>
+        <div class="topbar-center">
+          <h1 data-i18n="home_title">我的市场</h1>
+        </div>
+        <div class="topbar-side topbar-side-right actions">
+          <label class="ghost inline-select">
+            <span id="langLabel" data-i18n="language_label">语言</span>
+            <select id="langSelect">
+              <option value="en">English</option>
+              <option value="zh">简体中文</option>
+            </select>
+          </label>
+          <button id="btnDrive" class="ghost" data-i18n="btnDrive">网盘</button>
+          <button id="btnChat" class="ghost btn-chat-anchor"><span id="btnChatLabel" data-i18n="btnChat">聊天</span><span id="btnChatBadge" class="badge hidden">0</span></button>
+          <button id="btnProfile" class="ghost" data-i18n="btnProfile">个人信息</button>
+        </div>
+      </header>
+
+      <section id="homeView">
+        <section class="stats reveal delay-1">
+          <article id="walletCard" class="clickable" role="button" tabindex="0">
+            <h3 data-i18n="balance_title">我的余额</h3>
+            <p id="myBalance" class="value">-</p>
+            <small id="myRoleTip" data-i18n="current_role_buyer">当前身份：买家</small>
+            <div class="wallet-card-actions">
+              <button id="btnHomeWalletSend" type="button" class="ghost" data-i18n="btnHomeWalletSend">转账</button>
+              <button id="btnHomeWalletReceive" type="button" class="ghost" data-i18n="btnHomeWalletReceive">收款</button>
+            </div>
+          </article>
+          <article>
+            <h3 data-i18n="locked_title">订单锁定金额</h3>
+            <p id="lockedBalance" class="value">-</p>
+            <small data-i18n="locked_balance_hint">当前身份下，所有进行中订单合计</small>
+          </article>
+          <article id="syncCard" class="clickable">
+            <div class="sync-card-head">
+              <h3 data-i18n="sync_title">同步状态</h3>
+              <p id="syncStatus" class="value sync-status-inline">-</p>
+            </div>
+            <small id="syncTip">-</small>
+            <small id="syncGate" class="hint hidden" hidden>-</small>
+            <small id="syncGateTip" class="hint hidden" hidden>-</small>
+            <div class="sync-progress-wrap" aria-hidden="true">
+              <div id="syncProgressBar" class="sync-progress-bar"></div>
+              <span id="syncProgressText" class="sync-progress-text">0%</span>
+            </div>
+            <div class="actions inline" style="margin-top:8px;">
+              <button id="btnShowConnectedNodes" type="button" data-i18n="btnShowConnectedNodes">Connected 0</button>
+              <button id="btnShowCandidateNodes" type="button" data-i18n="btnShowCandidateNodes">Candidates 0</button>
+              <button id="btnSyncNow" type="button" data-i18n="btnSyncNow">Sync</button>
+              <button id="btnPushChain" type="button" disabled data-i18n="btnPushChain">Publish (0)</button>
+            </div>
+          </article>
+        </section>
+
+        <section class="layout reveal delay-3" id="buyerPanel">
+          <section class="card buyer-market-shell">
+            <div class="buyer-market-hero">
+              <div class="chips buyer-browse-tabs buyer-market-tabs">
+                <button id="btnBuyerBrowseByCategory" class="chip active" data-buyer-browse-mode="category" data-i18n="buyer_browse_by_category">按商品分类找</button>
+                <button id="btnBuyerBrowseByMerchant" class="chip" data-buyer-browse-mode="merchant" data-i18n="buyer_browse_by_merchant">按商家找</button>
+              </div>
+              <div class="buyer-market-searchbar">
+                <input id="keyword" placeholder="搜商品 / 分类 / 关键词" data-i18n-placeholder="keyword_placeholder" />
+                <button id="btnSearch" data-i18n="btnSearch">Search</button>
+              </div>
+            </div>
+            <div id="buyerBrowseCategoryPane" class="buyer-browse-pane">
+              <div class="buyer-product-grid">
+                <div class="buyer-side-nav">
+                  <div class="buyer-side-nav-head" data-i18n="buyer_category_nav_title">商品分类</div>
+                  <div id="buyerPrimaryCategoryList" class="list buyer-primary-category-list"></div>
+                </div>
+                <div class="buyer-result-pane">
+                  <div class="buyer-result-head">
+                    <div>
+                      <strong id="buyerResultHeadline" data-i18n="buyer_all_products_headline">全部商品</strong>
+                    </div>
+                  </div>
+                  <div id="productList" class="list"></div>
+                </div>
+              </div>
+            </div>
+            <div id="buyerBrowseMerchantPane" class="buyer-browse-pane hidden">
+              <div class="buyer-result-head">
+                <div>
+                  <strong id="buyerMerchantHeadline" data-i18n="merchant_goods_title">商家商品</strong>
+                </div>
+              </div>
+              <div class="buyer-product-grid">
+                <div class="buyer-side-nav">
+                  <div class="buyer-side-nav-head" data-i18n="buyer_merchant_nav_title">商家列表</div>
+                  <div id="merchantList" class="list buyer-primary-category-list"></div>
+                </div>
+                <div class="buyer-result-pane">
+                  <div id="buyerMerchantProductList" class="list"></div>
+                </div>
+              </div>
+            </div>
+          </section>
+        </section>
+
+        <section class="card reveal delay-3" id="buyerOrdersSection">
+          <div class="seller-section-head">
+            <h2 class="order-section-title" data-order-notify-role="buyer"><span data-i18n="my_orders_title">我的订单（买家）</span></h2>
+            <button id="btnOrderHistory" type="button" data-i18n="order_history_title">历史订单</button>
+          </div>
+          <p class="hint" id="orderTip" data-i18n="order_tip">下单后可在订单行直接取消/确认/申请退货</p>
+          <div id="orderListBuyer" class="list"></div>
+        </section>
+
+        <section class="seller-stack reveal delay-3 hidden" id="sellerPanel">
+          <section class="card buyer-market-shell seller-market-shell">
+            <div class="seller-grid buyer-product-grid seller-product-grid">
+              <div class="buyer-side-nav seller-side-nav">
+                <div class="buyer-side-nav-head seller-inline-title"><span data-i18n="category_list_title">商品分类</span><button id="btnAddCategory" type="button" class="chip" data-i18n="btnAddCategory">添加分类</button></div>
+                <datalist id="defaultCategoryOptions"></datalist>
+                <div id="categoryList" class="list buyer-primary-category-list seller-category-list"></div>
+              </div>
+              <div class="buyer-result-pane seller-result-pane">
+                <div class="buyer-result-head seller-result-head">
+                  <div>
+                    <strong data-i18n="product_list_title">商品列表</strong>
+                  </div>
+                  <button id="btnAddProduct" type="button" class="chip" data-i18n="btnAddProduct">添加商品</button>
+                </div>
+                <div id="sellerProductList" class="list"></div>
+              </div>
+            </div>
+            <p class="hint" id="sellerHint" data-i18n="seller_hint">删除商品后会生成 tombstone，等待各节点同步完成后才从买家视图彻底消失。</p>
+          </section>
+
+          <section class="card seller-order-row">
+            <div class="seller-order-headline">
+              <h2 class="order-section-title" data-order-notify-role="seller"><span data-i18n="seller_orders_title">卖家订单列表（独立行）</span></h2>
+              <div class="chips order-filter-tabs">
+                <button class="chip" data-order-filter="ALL" data-i18n="order_filter_all">全部</button>
+                <button class="chip active" data-order-filter="OPEN" data-i18n="order_filter_open">进行中</button>
+                <button class="chip" data-order-filter="CLOSED" data-i18n="order_filter_closed">已结束</button>
+                <button class="chip" data-order-filter="DISPUTED" data-i18n="order_filter_disputed">争议</button>
+              </div>
+            </div>
+            <div id="orderListSeller" class="list"></div>
+          </section>
+        </section>
+
+      </section>
+
+      <section id="profileView" class="hidden">
+        <section class="card profile-page reveal delay-1">
+          <div class="profile-head">
+            <h2 data-i18n="profile_and_steward_title">个人信息 & 后台管家</h2>
+            <button id="btnSaveProfile" disabled data-i18n="btnSaveProfile">保存个人信息</button>
+          </div>
+          <div class="config-grid">
+            <label><span data-i18n="profile_name_label">名字</span>
+              <input id="profileName" value="" data-i18n-placeholder="profile_name_placeholder" />
+            </label>
+            <label><span data-i18n="region_priority_label">区域优先级</span>
+              <select id="regionPriority">
+                <option value="local" data-i18n="region_priority_local">Local first</option>
+                <option value="nearby" data-i18n="region_priority_nearby">Nearby first</option>
+                <option value="global" data-i18n="region_priority_global">Global fallback</option>
+              </select>
+            </label>
+            <label><span data-i18n="poll_sec_label">轮询频率(秒)</span>
+              <input id="pollSec" type="number" value="15" min="5" />
+            </label>
+            <label><span data-i18n="replay_window_label">断线回扫区块</span>
+              <input id="replayWindow" type="number" value="120" min="10" />
+            </label>
+            <label><span data-i18n="catalog_sync_label">商品同步</span>
+              <select id="catalogSyncEnabled">
+                <option value="1" data-i18n="option_on">开启</option>
+                <option value="0" data-i18n="option_off">关闭</option>
+              </select>
+            </label>
+          </div>
+          <p id="stewardText" class="hint">-</p>
+          <div class="actions">
+            <button id="btnApplySteward" type="button" data-i18n="btnApplySteward">应用后台设置</button>
+          </div>
+        </section>
+        <section class="card profile-page reveal delay-2">
+          <details class="profile-collapsible">
+            <summary>
+              <span data-i18n="chat_settings_title">P2P 聊天设置</span>
+              <span class="profile-collapsible-hint" data-i18n="chat_settings_expand" data-i18n-open-text="chat_settings_collapse" data-open-text="收起">展开</span>
+            </summary>
+            <div class="profile-collapsible-body">
+              <div class="config-grid">
+                <label><span data-i18n="chat_enabled_label">启用聊天服务</span>
+                  <select id="chatEnabled">
+                    <option value="1" data-i18n="option_on">开启</option>
+                    <option value="0" data-i18n="option_off">关闭</option>
+                  </select>
+                </label>
+                <label><span data-i18n="chat_listen_port_label">本地监听端口</span>
+                  <input id="chatListenPort" type="number" min="1" max="65535" value="8787" />
+                </label>
+                <label><span data-i18n="chat_public_host_label">对外地址</span>
+                  <input id="chatPublicHost" placeholder="公网 IP 或域名" data-i18n-placeholder="chat_public_host_placeholder" />
+                </label>
+                <label><span data-i18n="chat_public_port_label">对外端口</span>
+                  <input id="chatPublicPort" type="number" min="1" max="65535" value="8787" />
+                </label>
+                <label><span data-i18n="chat_connect_mode_label">连接策略</span>
+                  <select id="chatConnectMode">
+                    <option value="prefer_p2p_fallback_onchain" data-i18n="chat_connect_mode_prefer_p2p">优先 P2P，失败转链上</option>
+                    <option value="prefer_onchain" data-i18n="chat_connect_mode_prefer_onchain">优先链上</option>
+                    <option value="p2p_only" data-i18n="chat_connect_mode_p2p_only">仅 P2P</option>
+                  </select>
+                </label>
+                <label><span data-i18n="chat_relay_label">Relay 地址</span>
+                  <input id="chatRelayUrl" placeholder="可选" data-i18n-placeholder="optional_placeholder" />
+                </label>
+                <label><span data-i18n="chat_allow_onchain_invite_label">允许链上邀请</span>
+                  <select id="chatAllowOnchainInvite">
+                    <option value="1" data-i18n="option_on">开启</option>
+                    <option value="0" data-i18n="option_off">关闭</option>
+                  </select>
+                </label>
+                <label><span data-i18n="chat_fallback_onchain_label">连接失败可转链上</span>
+                  <select id="chatFallbackToOnchain">
+                    <option value="1" data-i18n="option_on">开启</option>
+                    <option value="0" data-i18n="option_off">关闭</option>
+                  </select>
+                </label>
+                <label><span data-i18n="chat_auto_publish_label">自动发布聊天资料</span>
+                  <select id="chatAutoPublishEndpoint">
+                    <option value="1" data-i18n="option_on">开启</option>
+                    <option value="0" data-i18n="option_off">关闭</option>
+                  </select>
+                </label>
+                <label><span data-i18n="chat_pubkey_label">聊天身份公钥</span>
+                  <input id="chatPubKey" readonly />
+                </label>
+              </div>
+              <p class="hint" id="chatConfigStatus" data-i18n="chat_config_status_loading">聊天服务状态：未加载</p>
+            </div>
+          </details>
+        </section>
+        <section class="card profile-page reveal delay-2">
+          <h2 data-i18n="wallet_title">钱包</h2>
+          <div class="config-grid">
+            <label><span data-i18n="wallet_available_balance_label">可用余额（BSV）</span>
+              <input id="walletAvailableBalanceView" readonly />
+            </label>
+            <label><span data-i18n="wallet_pending_change_balance_label">未确认找零（BSV）</span>
+              <input id="walletPendingBalanceView" readonly />
+            </label>
+            <label><span data-i18n="wallet_pending_incoming_balance_label">未确认转入（BSV）</span>
+              <input id="walletPendingIncomingBalanceView" readonly />
+            </label>
+            <label><span data-i18n="wallet_total_balance_label">总余额（BSV）</span>
+              <input id="walletBalanceView" readonly />
+            </label>
+          </div>
+          <div class="receive-qr-wrap">
+            <p><strong id="walletReceiveTitle" data-i18n="walletReceiveTitle">收款地址</strong></p>
+            <img id="walletReceiveQr" alt="收款地址二维码" data-i18n-alt="wallet_receive_qr_alt" />
+            <div class="actions inline send-amount-row">
+              <input id="walletReceiveView" readonly />
+              <button id="btnCopyReceive" type="button" class="ghost icon-button" aria-label="Copy receive address" title="Copy receive address" data-i18n-title="btnCopyReceive" data-i18n-aria-label="btnCopyReceive">⧉</button>
+            </div>
+          </div>
+          <div class="actions wallet-actions-row">
+            <button id="btnWalletSync" data-i18n="btnWalletSync">钱包同步</button>
+            <button id="btnWalletReceive" data-i18n="btnWalletReceive">收款</button>
+            <button id="btnWalletSend" data-i18n="btnWalletSend">发送</button>
+            <button id="btnWalletDonate" class="ghost wallet-donate-button" data-i18n="btnWalletDonate">捐款</button>
+          </div>
+          <details class="card" style="margin-top:10px; padding:10px;">
+            <summary id="advancedSummary" data-i18n="advancedSummary">高级功能</summary>
+            <div class="actions" style="margin-top:10px;">
+              <button id="btnRebuildData" data-i18n="btnRebuildData">数据重建</button>
+              <button id="btnRecoverSync" type="button" data-i18n="btnRecoverSync">重新同步</button>
+              <button id="btnWalletSwitch" data-i18n="btnWalletSwitch">切换钱包</button>
+              <button id="btnShowMnemonic" data-i18n="btnShowMnemonic">显示助记词</button>
+              <button id="btnLogout" class="ghost" data-i18n="btnLogout">退出</button>
+            </div>
+          </details>
+          <h3 style="margin-top:12px;" data-i18n="wallet_history_title">钱包记录（最近10条）</h3>
+          <div id="walletHistoryList" class="list"><div class="row" data-i18n="wallet_history_loading">正在加载钱包记录...</div></div>
+        </section>
+      </section>
+    </main>
+
+    <div id="chatModal" class="modal hidden">
+      <div class="modal-card chat-card" id="chatCard">
+        <div class="modal-head">
+          <div class="chat-head-left">
+            <div class="chat-self-presence">
+              <span id="chatSelfStatusDot" class="status-dot online" aria-hidden="true"></span>
+              <span class="hint" id="chatSelfStatus" data-i18n="chat_self_online">在线</span>
+              <button id="btnChatToggleOnline" class="ghost" type="button" data-i18n="chat_toggle_offline_short">离线</button>
+            </div>
+          </div>
+          <h3 id="chatTitle" data-i18n="chat_window_title">聊天窗口</h3>
+          <div class="chat-head-right">
+            <button id="btnChatShowList" class="ghost icon-button hidden" type="button" title="显示联系人列表" aria-label="显示联系人列表" data-i18n-title="chat_show_contact_list" data-i18n-aria-label="chat_show_contact_list">☰</button>
+            <div class="chat-display-menu-wrap">
+              <button id="btnChatDisplayMenu" class="ghost" type="button" data-no-busy="1" data-i18n="chat_display_menu_button">显示内容</button>
+              <div id="chatDisplayMenuDropdown" class="chat-display-menu-dropdown hidden">
+                <div class="chat-display-menu-group">
+                  <div class="chat-display-menu-title" data-i18n="chat_display_self_messages">我的消息</div>
+                  <label><input id="chatMetaSelfWho" type="checkbox" /> <span data-i18n="chat_display_sender">发送者</span></label>
+                  <label><input id="chatMetaSelfTransport" type="checkbox" checked /> <span data-i18n="chat_display_source">来源</span></label>
+                  <label><input id="chatMetaSelfTime" type="checkbox" checked /> <span data-i18n="chat_display_time">时间</span></label>
+                  <label><input id="chatMetaSelfStatus" type="checkbox" /> <span data-i18n="chat_display_status">状态</span></label>
+                </div>
+                <div class="chat-display-menu-group">
+                  <div class="chat-display-menu-title" data-i18n="chat_display_peer_messages">对方消息</div>
+                  <label><input id="chatMetaPeerWho" type="checkbox" /> <span data-i18n="chat_display_sender">发送者</span></label>
+                  <label><input id="chatMetaPeerTransport" type="checkbox" checked /> <span data-i18n="chat_display_source">来源</span></label>
+                  <label><input id="chatMetaPeerTime" type="checkbox" checked /> <span data-i18n="chat_display_time">时间</span></label>
+                  <label><input id="chatMetaPeerStatus" type="checkbox" /> <span data-i18n="chat_display_status">状态</span></label>
+                </div>
+              </div>
+            </div>
+            <button id="btnChatMaximize" class="ghost icon-button" type="button" title="最大化" aria-label="最大化" data-i18n-title="chat_maximize" data-i18n-aria-label="chat_maximize">□</button>
+            <button id="btnCloseChat" class="ghost icon-button modal-close-button" title="关闭" aria-label="关闭" data-i18n-title="btnCloseChat" data-i18n-aria-label="btnCloseChat">✕</button>
+          </div>
+        </div>
+        <div class="chat-layout">
+          <aside class="chat-users-wrap">
+            <div class="chat-user-tools">
+              <div class="chat-search-wrap">
+                <input id="chatSearchInput" placeholder="查询已上传个人信息的钱包" data-i18n-placeholder="chat_search_placeholder" />
+                <button id="btnChatSearch" type="button" data-i18n="chat_search_button">查询</button>
+              </div>
+              <div class="chat-menu-wrap">
+                <button id="btnChatMenu" class="ghost icon-button" type="button" aria-label="聊天菜单" title="聊天菜单" data-i18n-title="chat_menu_title" data-i18n-aria-label="chat_menu_title">⋯</button>
+                <div id="chatMenuDropdown" class="chat-menu-dropdown hidden">
+                  <button id="btnChatFriendAction" class="ghost" type="button" data-i18n="chat_friend_confirm_action">好友确认</button>
+                  <button id="btnChatCreateGroup" class="ghost" type="button" data-i18n="chat_create_group_action">创建群</button>
+                  <button id="btnChatBlockAction" class="ghost" type="button" data-i18n="chat_block_action">加入黑名单</button>
+                </div>
+              </div>
+            </div>
+            <aside id="chatUserPane" class="chat-users"></aside>
+          </aside>
+          <section class="chat-main">
+            <div id="chatStatusBar" class="chat-status-bar">
+              <span id="chatThreadStatus" class="hint" data-i18n="chat_status_none_selected">未选择联系人</span>
+              <span id="chatP2pSummary" class="hint"></span>
+              <button id="btnChatP2pConnect" class="ghost chat-p2p-connect hidden" type="button">P2P</button>
+            </div>
+            <div id="chatBox" class="log"></div>
+            <div class="chat-input-stack">
+              <div id="chatEmojiBar" class="chat-emoji-bar" aria-label="常用表情" data-i18n-aria-label="chat_emoji_bar_label">
+                <button type="button" class="chat-emoji-btn" data-chat-emoji="😀" title="开心" data-i18n-title="chat_emoji_happy">😀</button>
+                <button type="button" class="chat-emoji-btn" data-chat-emoji="😂" title="大笑" data-i18n-title="chat_emoji_laugh">😂</button>
+                <button type="button" class="chat-emoji-btn" data-chat-emoji="🤣" title="笑哭" data-i18n-title="chat_emoji_rofl">🤣</button>
+                <button type="button" class="chat-emoji-btn" data-chat-emoji="👍" title="赞" data-i18n-title="chat_emoji_like">👍</button>
+                <button type="button" class="chat-emoji-btn" data-chat-emoji="👌" title="可以" data-i18n-title="chat_emoji_ok">👌</button>
+                <button type="button" class="chat-emoji-btn" data-chat-emoji="🙏" title="谢谢" data-i18n-title="chat_emoji_thanks">🙏</button>
+                <button type="button" class="chat-emoji-btn" data-chat-emoji="❤️" title="喜欢" data-i18n-title="chat_emoji_love">❤️</button>
+                <button type="button" class="chat-emoji-btn" data-chat-emoji="😍" title="喜爱" data-i18n-title="chat_emoji_adore">😍</button>
+                <button type="button" class="chat-emoji-btn" data-chat-emoji="😎" title="酷" data-i18n-title="chat_emoji_cool">😎</button>
+                <button type="button" class="chat-emoji-btn" data-chat-emoji="😭" title="哭" data-i18n-title="chat_emoji_cry">😭</button>
+                <button type="button" class="chat-emoji-btn" data-chat-emoji="😡" title="生气" data-i18n-title="chat_emoji_angry">😡</button>
+                <button type="button" class="chat-emoji-btn" data-chat-emoji="🎉" title="庆祝" data-i18n-title="chat_emoji_celebrate">🎉</button>
+              </div>
+              <div id="chatAttachmentPreview" class="chat-attachment-preview hidden" aria-label="待发送附件" data-i18n-aria-label="chat_attachment_preview_label"></div>
+              <div class="chat-compose-row">
+                <button id="btnChatAttach" class="ghost icon-button" type="button" title="添加图片或附件" aria-label="添加图片或附件" data-i18n-title="chat_attach_button" data-i18n-aria-label="chat_attach_button">📎</button>
+                <input id="chatAttachmentInput" class="hidden" type="file" multiple />
+                <input id="chatInput" placeholder="输入消息（普通会话走 P2P，订单会话上链）" data-i18n-placeholder="chat_input_placeholder" />
+                <button id="btnSendChat" data-i18n="btnSendChat">发送</button>
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+
+    <div id="chatUserContextMenu" class="chat-user-context-menu hidden">
+      <button id="btnChatContextAddFriend" class="ghost" type="button" data-i18n="chat_friend_action_default">添加好友</button>
+    </div>
+
+    <div id="chatFriendConfirmModal" class="modal hidden">
+      <div class="modal-card auth-card chat-friend-confirm-card">
+        <div class="modal-head">
+          <div></div>
+          <h3 data-i18n="chat_friend_confirm_action">好友确认</h3>
+          <button id="btnCloseChatFriendConfirm" class="ghost icon-button modal-close-button" type="button" title="关闭" aria-label="关闭" data-i18n-title="btnCloseChatFriendConfirm" data-i18n-aria-label="btnCloseChatFriendConfirm">✕</button>
+        </div>
+        <div class="stack">
+          <div id="chatFriendConfirmList" class="chat-friend-confirm-list"></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="driveModal" class="modal hidden">
+      <div class="modal-card drive-card">
+        <div class="modal-head">
+          <div></div>
+          <h3 id="driveTitle" data-i18n="drive_window_title">网盘</h3>
+          <button id="btnCloseDrive" class="ghost icon-button modal-close-button" title="关闭" aria-label="关闭" data-i18n-title="btnCloseDrive" data-i18n-aria-label="btnCloseDrive">✕</button>
+        </div>
+        <div class="drive-toolbar">
+          <div class="drive-root-editor">
+            <label for="driveRootDirInput" data-i18n="drive_root_dir_label">服务器本地根目录</label>
+            <input id="driveRootDirInput" placeholder="/data/drive-root" readonly data-i18n-placeholder="drive_root_dir_placeholder" />
+            <button id="btnPickDriveRootDir" type="button" data-i18n="drive_pick_root_dir">设置目录</button>
+            <span id="driveRootDirHint" class="hint"></span>
+          </div>
+          <div class="actions inline">
+            <button id="btnDriveViewList" type="button" class="chip active" data-i18n="drive_view_list">列表</button>
+            <button id="btnDriveViewGrid" type="button" class="chip" data-i18n="drive_view_grid">大图标</button>
+            <button id="btnDriveRefresh" type="button" data-i18n="drive_refresh_button">刷新</button>
+          </div>
+        </div>
+        <input id="driveUploadInput" type="file" class="hidden" multiple />
+        <div class="drive-layout">
+          <aside class="drive-tree-pane">
+            <div class="drive-pane-head">
+              <strong data-i18n="drive_tree_title">目录树</strong>
+              <button id="btnDriveNewDir" type="button" class="chip" data-i18n="drive_new_dir_button">新建目录</button>
+            </div>
+            <div id="driveTreePane" class="drive-tree"></div>
+          </aside>
+          <section class="drive-main-pane">
+            <div class="drive-pane-head drive-main-head">
+              <div class="drive-main-head-copy">
+                <strong data-i18n="drive_dir_content_title">目录内容</strong>
+                <p id="driveCurrentPath" class="hint mono">/</p>
+              </div>
+              <div class="actions inline drive-main-actions">
+                <button id="btnDriveUpload" type="button" data-i18n="drive_upload_button">上传文件</button>
+              </div>
+            </div>
+            <div id="driveListingPane" class="drive-listing"></div>
+          </section>
+        </div>
+      </div>
+    </div>
+
+    <div id="driveDirPickerModal" class="modal hidden">
+      <div class="modal-card drive-picker-card">
+        <div class="modal-head">
+          <div></div>
+          <h3 data-i18n="drive_picker_title">选择服务器目录</h3>
+          <button id="btnCloseDriveDirPicker" class="ghost icon-button modal-close-button" title="关闭" aria-label="关闭" data-i18n-title="btnCloseDriveDirPicker" data-i18n-aria-label="btnCloseDriveDirPicker">✕</button>
+        </div>
+        <div class="drive-picker-toolbar">
+          <div class="drive-picker-nav-row">
+            <button id="btnDriveDirGoUp" type="button" data-i18n="drive_picker_up_button">上一级</button>
+            <div id="driveDirRoots" class="chips drive-picker-roots"></div>
+          </div>
+          <input id="driveDirPickerPath" readonly />
+          <button id="btnConfirmDriveDirPicker" type="button" data-i18n="drive_picker_confirm_button">设为网盘根目录</button>
+        </div>
+        <div id="driveDirPickerList" class="drive-picker-list"></div>
+      </div>
+    </div>
+
+    <div id="driveMkdirModal" class="modal hidden">
+      <div class="modal-card auth-card drive-mkdir-card">
+        <div class="modal-head">
+          <h3 data-i18n="drive_mkdir_title">新建目录</h3>
+          <button id="btnCloseDriveMkdir" class="ghost icon-button modal-close-button" title="关闭" aria-label="关闭" data-i18n-title="btnCloseDriveMkdir" data-i18n-aria-label="btnCloseDriveMkdir">✕</button>
+        </div>
+        <div class="stack">
+          <p id="driveMkdirCurrentPath" class="hint mono">/</p>
+          <label>
+            <span data-i18n="drive_mkdir_name_label">目录名称</span>
+            <input id="driveMkdirName" placeholder="新目录" data-i18n-placeholder="drive_mkdir_name_placeholder" />
+          </label>
+          <div class="actions inline">
+            <button id="btnCancelDriveMkdir" type="button" class="ghost" data-i18n="btnCancel">取消</button>
+            <button id="btnConfirmDriveMkdir" type="button" data-i18n="drive_mkdir_confirm_button">创建</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="driveRenameDirModal" class="modal hidden">
+      <div class="modal-card auth-card drive-mkdir-card">
+        <div class="modal-head">
+          <h3 data-i18n="drive_rename_dir_title">改名目录</h3>
+          <button id="btnCloseDriveRenameDir" class="ghost icon-button modal-close-button" title="关闭" aria-label="关闭" data-i18n-title="btnCloseDriveRenameDir" data-i18n-aria-label="btnCloseDriveRenameDir">✕</button>
+        </div>
+        <div class="stack">
+          <p id="driveRenameDirCurrentPath" class="hint mono">/</p>
+          <label>
+            <span data-i18n="drive_rename_dir_name_label">新的目录名称</span>
+            <input id="driveRenameDirName" placeholder="目录名称" data-i18n-placeholder="drive_rename_dir_name_placeholder" />
+          </label>
+          <div class="actions inline">
+            <button id="btnCancelDriveRenameDir" type="button" class="ghost" data-i18n="btnCancel">取消</button>
+            <button id="btnConfirmDriveRenameDir" type="button" data-i18n="drive_rename_dir_confirm">确认改名</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="driveUploadConfirmModal" class="modal hidden">
+      <div class="modal-card auth-card drive-upload-confirm-card">
+        <div class="modal-head">
+          <h3 data-i18n="drive_upload_confirm_title">上传确认</h3>
+          <button id="btnCloseDriveUploadConfirm" class="ghost icon-button modal-close-button" title="关闭" aria-label="关闭" data-i18n-title="btnCloseDriveUploadConfirm" data-i18n-aria-label="btnCloseDriveUploadConfirm">✕</button>
+        </div>
+        <div class="stack">
+          <p id="driveUploadConfirmMessage" data-i18n="drive_upload_confirm_default_message">系统已完成分片和费用预估。</p>
+          <div id="driveUploadConfirmDetails" class="drive-upload-confirm-details"></div>
+          <div class="actions inline">
+            <button id="btnCancelDriveUploadConfirm" type="button" class="ghost" data-i18n="drive_upload_cancel_button">取消上传</button>
+            <button id="btnConfirmDriveUploadConfirm" type="button" data-i18n="drive_upload_continue_button">继续上传</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="driveBrowserDownloadModal" class="modal hidden">
+      <div class="modal-card auth-card drive-browser-download-card">
+        <div class="modal-head">
+          <h3 data-i18n="drive_browser_download_title">下载文件</h3>
+          <button id="btnCloseDriveBrowserDownload" class="ghost icon-button modal-close-button" title="关闭" aria-label="关闭" data-i18n-title="btnCloseDriveBrowserDownload" data-i18n-aria-label="btnCloseDriveBrowserDownload">✕</button>
+        </div>
+        <div class="stack">
+          <p id="driveBrowserDownloadMessage" data-i18n="drive_browser_download_message">是否下载文件到浏览器？</p>
+          <p id="driveBrowserDownloadName" class="hint mono"></p>
+          <div class="actions inline">
+            <button id="btnCancelDriveBrowserDownload" type="button" class="ghost" data-i18n="btnCancel">取消</button>
+            <button id="btnConfirmDriveBrowserDownload" type="button" data-i18n="drive_browser_download_button">下载</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="driveDeleteConfirmModal" class="modal hidden">
+      <div class="modal-card auth-card drive-delete-confirm-card">
+        <div class="modal-head">
+          <h3 data-i18n="drive_delete_confirm_title">删除确认</h3>
+          <button id="btnCloseDriveDeleteConfirm" class="ghost icon-button modal-close-button" title="关闭" aria-label="关闭" data-i18n-title="btnCloseDriveDeleteConfirm" data-i18n-aria-label="btnCloseDriveDeleteConfirm">✕</button>
+        </div>
+        <div class="stack">
+          <p id="driveDeleteConfirmMessage" data-i18n="drive_delete_confirm_default_message">确认删除？</p>
+          <p id="driveDeleteConfirmName" class="hint mono"></p>
+          <div class="actions inline">
+            <button id="btnCancelDriveDeleteConfirm" type="button" class="ghost" data-i18n="btnCancel">取消</button>
+            <button id="btnConfirmDriveDeleteConfirm" type="button" data-i18n="delete_button">删除</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="sendModal" class="modal hidden">
+      <div class="modal-card auth-card">
+        <div class="modal-head">
+          <h3 id="sendModalTitle" data-i18n="send_bsv_title">发送 BSV</h3>
+          <button id="btnCloseSend" class="ghost icon-button modal-close-button" title="关闭" aria-label="关闭" data-i18n-title="btnCloseSend" data-i18n-aria-label="btnCloseSend">✕</button>
+        </div>
+        <div class="stack">
+          <label><span data-i18n="send_to_label">发送地址</span>
+            <input id="sendModalTo" placeholder="1...." data-i18n-placeholder="send_to_placeholder" />
+          </label>
+          <label><span data-i18n="send_amount_label">发送数量(BSV)</span>
+            <div class="actions inline send-amount-row">
+              <input id="sendModalAmount" type="number" min="0" step="0.00000001" value="0.00001" />
+              <button id="btnSendAll" type="button" class="ghost" data-i18n="btnSendAll">全部</button>
+            </div>
+          </label>
+          <p class="hint" id="sendModalAvailableBalance" data-i18n="send_available_balance_hint">可用余额：0.00000000 BSV</p>
+          <label><span data-i18n="send_note_label">备注</span>
+            <input id="sendModalNote" placeholder="可选备注" data-i18n-placeholder="send_note_placeholder" />
+          </label>
+          <button id="btnSendConfirm" data-i18n="btnSendConfirm">确认发送</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="receiveModal" class="modal hidden">
+      <div class="modal-card auth-card">
+        <div class="modal-head">
+          <h3 data-i18n="walletReceiveModalTitle">收款</h3>
+          <button id="btnCloseReceiveModal" class="ghost icon-button modal-close-button" title="关闭" aria-label="关闭" data-i18n-title="btnCloseReceiveModal" data-i18n-aria-label="btnCloseReceiveModal">✕</button>
+        </div>
+        <div class="stack receive-modal-body">
+          <img id="receiveModalQr" alt="收款地址二维码" data-i18n-alt="wallet_receive_qr_alt" />
+          <div class="actions inline send-amount-row">
+            <input id="receiveModalAddress" readonly />
+            <button id="btnCopyReceiveModal" type="button" class="ghost icon-button" aria-label="Copy receive address" title="Copy receive address" data-i18n-title="btnCopyReceive" data-i18n-aria-label="btnCopyReceive">⧉</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="chatFeeModal" class="modal hidden">
+      <div class="modal-card auth-card">
+        <div class="modal-head">
+          <h3 data-i18n="chat_fee_title">链上发送确认</h3>
+          <button id="btnCloseChatFee" class="ghost icon-button modal-close-button" title="关闭" aria-label="关闭" data-i18n-title="btnCloseChatFee" data-i18n-aria-label="btnCloseChatFee">✕</button>
+        </div>
+        <div class="stack">
+          <p id="chatFeeMessage" data-i18n="chat_fee_message_default">当前未直连，消息将走链上发送并产生费用。</p>
+          <div class="actions inline">
+            <button id="btnCancelChatFee" class="ghost" data-i18n="btnCancelChatFee">取消</button>
+            <button id="btnConfirmChatFee" data-i18n="btnConfirmChatFee">继续发送</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="addProductModal" class="modal hidden">
+      <div class="modal-card auth-card">
+        <div class="modal-head">
+          <h3 data-i18n="add_product_title">添加商品</h3>
+          <button id="btnCloseAddProduct" class="ghost icon-button modal-close-button" title="关闭" aria-label="关闭" data-i18n-title="btnCloseAddProduct" data-i18n-aria-label="btnCloseAddProduct">✕</button>
+        </div>
+        <div class="stack">
+          <label><span data-i18n="category_label">分类</span>
+            <select id="addProductCategory"></select>
+          </label>
+          <label><span data-i18n="product_name_label">商品名</span>
+            <input id="addProductTitle" placeholder="输入商品名" data-i18n-placeholder="product_name_placeholder" />
+          </label>
+          <label><span data-i18n="price_label">价格</span>
+            <input id="addProductPrice" type="number" min="0" step="0.01" placeholder="0" />
+          </label>
+          <label><span data-i18n="stock_label">库存</span>
+            <input id="addProductStock" type="number" min="0" step="1" placeholder="0" />
+          </label>
+          <label><span class="product-image-label-row"><span data-i18n="product_image_label">商品图片</span><small data-i18n="product_image_preview_size">展示框 150×150</small></span>
+            <input id="addProductImageFile" type="file" accept="image/jpeg,image/png,image/webp" />
+            <small class="field-hint" data-i18n="product_image_upload_hint">支持 JPG/PNG/WebP，原图不超过 1MB；系统会压缩为链上缩略图。</small>
+            <input id="addProductImageUrl" type="hidden" />
+            <img id="addProductImagePreview" class="product-image-preview hidden" alt="商品图片预览" data-i18n-alt="product_image_preview_alt" />
+          </label>
+          <label><span data-i18n="product_description_label">产品说明</span>
+            <textarea id="addProductDescription" rows="3" placeholder="输入产品说明" data-i18n-placeholder="product_description_placeholder"></textarea>
+          </label>
+          <button id="btnSubmitAddProduct" data-i18n="btnSubmitAddProduct">确认添加</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="categoryEditModal" class="modal hidden">
+      <div class="modal-card auth-card">
+        <div class="modal-head">
+          <h3 id="categoryEditTitle" data-i18n="edit_category_title">修改分类</h3>
+          <button id="btnCloseCategoryEdit" class="ghost icon-button modal-close-button" title="关闭" aria-label="关闭" data-i18n-title="btnCloseCategoryEdit" data-i18n-aria-label="btnCloseCategoryEdit">✕</button>
+        </div>
+        <div class="stack">
+          <label><span data-i18n="default_primary_category_label">默认一级分类</span>
+            <select id="editCategoryPreset">
+              <option value="" data-i18n="select_default_category">选择默认分类</option>
+            </select>
+          </label>
+          <label><span data-i18n="category_name_label">分类名</span>
+            <input id="editCategoryName" placeholder="输入分类名" data-i18n-placeholder="category_name_edit_placeholder" />
+          </label>
+          <button id="btnSubmitCategoryEdit" data-i18n="btnSubmitCategoryEdit">确认修改</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="productEditModal" class="modal hidden">
+      <div class="modal-card auth-card">
+        <div class="modal-head">
+          <h3 data-i18n="edit_product_title">修改商品</h3>
+          <button id="btnCloseProductEdit" class="ghost icon-button modal-close-button" title="关闭" aria-label="关闭" data-i18n-title="btnCloseProductEdit" data-i18n-aria-label="btnCloseProductEdit">✕</button>
+        </div>
+        <div class="stack">
+          <label><span data-i18n="category_label">分类</span>
+            <select id="editProductCategory"></select>
+          </label>
+          <label><span data-i18n="product_name_label">商品名</span>
+            <input id="editProductTitle" placeholder="输入商品名" data-i18n-placeholder="product_name_placeholder" />
+          </label>
+          <label><span data-i18n="price_label">价格</span>
+            <input id="editProductPrice" type="number" min="0" step="0.01" placeholder="0" />
+          </label>
+          <label><span data-i18n="stock_label">库存</span>
+            <input id="editProductStock" type="number" min="0" step="1" placeholder="0" />
+          </label>
+          <label><span class="product-image-label-row"><span data-i18n="product_image_label">商品图片</span><small data-i18n="product_image_preview_size">展示框 150×150</small></span>
+            <input id="editProductImageFile" type="file" accept="image/jpeg,image/png,image/webp" />
+            <small class="field-hint" data-i18n="product_image_upload_hint">支持 JPG/PNG/WebP，原图不超过 1MB；系统会压缩为链上缩略图。</small>
+            <input id="editProductImageUrl" type="hidden" />
+            <img id="editProductImagePreview" class="product-image-preview hidden" alt="商品图片预览" data-i18n-alt="product_image_preview_alt" />
+          </label>
+          <label><span data-i18n="product_description_label">产品说明</span>
+            <textarea id="editProductDescription" rows="3" placeholder="输入产品说明" data-i18n-placeholder="product_description_placeholder"></textarea>
+          </label>
+          <button id="btnSubmitProductEdit" data-i18n="btnSubmitProductEdit">确认修改</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="mnemonicModal" class="modal hidden">
+      <div class="modal-card auth-card">
+        <div class="modal-head">
+          <h3 data-i18n="mnemonic_modal_title">Show mnemonic</h3>
+          <button id="btnCloseMnemonic" class="ghost icon-button modal-close-button" title="Close" aria-label="Close" data-i18n-title="btnCloseMnemonic" data-i18n-aria-label="btnCloseMnemonic">✕</button>
+        </div>
+        <div class="stack">
+          <label><span data-i18n="mnemonic_password_label">Confirm wallet password</span>
+            <input id="mnemonicPassword" type="password" placeholder="Enter password" data-i18n-placeholder="password_placeholder" />
+          </label>
+          <button id="btnMnemonicConfirm" data-i18n="btnMnemonicConfirm">Confirm</button>
+          <textarea id="mnemonicOutput" rows="3" readonly placeholder="Shown after successful verification" data-i18n-placeholder="mnemonic_output_placeholder"></textarea>
+        </div>
+      </div>
+    </div>
+
+    <div id="switchWalletModal" class="modal hidden">
+      <div class="modal-card auth-card">
+        <div class="modal-head">
+          <h3 data-i18n="switch_wallet_title">Switch wallet</h3>
+          <button id="btnCloseSwitchWallet" class="ghost icon-button modal-close-button" title="Close" aria-label="Close" data-i18n-title="btnCloseSwitchWallet" data-i18n-aria-label="btnCloseSwitchWallet">✕</button>
+        </div>
+        <div id="switchStep1" class="stack">
+          <label><span data-i18n="switch_wallet_current_password_label">Confirm current wallet password</span>
+            <input id="switchWalletPassword" type="password" placeholder="Enter current wallet password" data-i18n-placeholder="switch_wallet_current_password_placeholder" />
+          </label>
+          <button id="btnSwitchStep1Next" data-i18n="btnSwitchStep1Next">Next</button>
+        </div>
+        <div id="switchStep2" class="stack hidden">
+          <label><span data-i18n="switch_wallet_new_password_label">New wallet password</span>
+            <input id="switchWalletNewPassword" type="password" placeholder="Enter new wallet password" data-i18n-placeholder="switch_wallet_new_password_placeholder" />
+          </label>
+          <label><span data-i18n="switch_wallet_target_mnemonic_label">Target wallet mnemonic</span>
+            <textarea id="switchWalletMnemonic" rows="3" placeholder="Enter the target wallet mnemonic" data-i18n-placeholder="switch_wallet_target_mnemonic_placeholder"></textarea>
+          </label>
+          <p class="hint" id="switchWalletProgress"></p>
+          <button id="btnConfirmSwitchWallet" data-i18n="btnConfirmSwitchWallet">Confirm switch</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="spvNodesModal" class="modal hidden">
+      <div class="modal-card auth-card">
+        <div class="modal-head">
+          <h3 data-i18n="spv_nodes_title">Node connection status</h3>
+          <button id="btnCloseSpvNodes" class="ghost icon-button modal-close-button" title="Close" aria-label="Close" data-i18n-title="btnCloseSpvNodes" data-i18n-aria-label="btnCloseSpvNodes">✕</button>
+        </div>
+        <div class="tabs small">
+          <button id="tabSpvConnected" class="tab active" data-i18n="tab_spv_connected">Connected nodes</button>
+          <button id="tabSpvCandidates" class="tab" data-i18n="tab_spv_candidates">Candidate nodes</button>
+        </div>
+        <p class="hint" id="spvNodesSummary"></p>
+        <div class="list" id="spvNodesList"></div>
+      </div>
+    </div>
+
+    <div id="pendingModal" class="modal hidden">
+      <div class="modal-card auth-card">
+        <div class="modal-head">
+          <h3 data-i18n="pending_modal_title">On-chain details</h3>
+          <button id="btnClosePending" class="ghost icon-button modal-close-button" title="Close" aria-label="Close" data-i18n-title="btnClosePending" data-i18n-aria-label="btnClosePending">✕</button>
+        </div>
+        <p class="hint" id="pendingSummary" data-i18n="pending_summary_empty">No pending on-chain items</p>
+        <p class="hint" id="pendingFeeSummary" data-i18n="pending_fee_summary_default">Estimated fee: 0.00000000 BSV</p>
+        <div class="list" id="pendingList"></div>
+        <p class="hint" id="recoverableSummary" data-i18n="recoverable_summary_empty">No recoverable unconfirmed broadcasts</p>
+        <div class="list" id="recoverableList"></div>
+        <div class="stack" style="margin-top:10px;">
+          <label><span data-i18n="wallet_password_label">Wallet password</span>
+            <input id="pendingPassword" type="password" placeholder="Enter wallet password to publish" data-i18n-placeholder="pending_password_placeholder" />
+          </label>
+          <button id="btnConfirmPushInModal" type="button" data-i18n="btnConfirmPushInModal">Confirm publish</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="orderHistoryModal" class="modal hidden">
+      <div class="modal-card">
+        <div class="modal-head">
+          <h3 data-i18n="order_history_title">历史订单</h3>
+          <button id="btnCloseOrderHistory" class="ghost icon-button modal-close-button" type="button" title="关闭" aria-label="关闭" data-i18n-title="btnCloseOrderHistory" data-i18n-aria-label="btnCloseOrderHistory">✕</button>
+        </div>
+        <div id="orderHistoryList" class="list"></div>
+        <div class="actions inline" id="orderHistoryPager">
+          <button id="btnOrderHistoryPrev" type="button" data-i18n="pagination_prev">上一页</button>
+          <span class="hint" id="orderHistoryPageInfo">1 / 1</span>
+          <button id="btnOrderHistoryNext" type="button" data-i18n="pagination_next">下一页</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="orderDetailModal" class="modal hidden">
+      <div class="modal-card order-detail-card">
+        <div class="modal-head">
+          <h3 id="orderDetailTitle" data-i18n="order_detail_title">订单详情</h3>
+          <button id="btnCloseOrderDetail" class="ghost icon-button modal-close-button" type="button" title="关闭" aria-label="关闭" data-i18n-title="btnCloseOrderDetail" data-i18n-aria-label="btnCloseOrderDetail">✕</button>
+        </div>
+        <div id="orderDetailBody" class="order-detail-body"></div>
+        <div id="orderDetailActions" class="actions order-detail-actions"></div>
+      </div>
+    </div>
+
+    <div id="orderPurchaseConfirmModal" class="modal hidden">
+      <div class="modal-card auth-card order-purchase-confirm-card">
+        <div class="modal-head">
+          <h3 data-i18n="order_purchase_confirm_title">确认下单金额</h3>
+          <button id="btnCloseOrderPurchaseConfirm" class="ghost icon-button modal-close-button" type="button" title="关闭" aria-label="关闭" data-i18n-title="btnCloseOrderPurchaseConfirm" data-i18n-aria-label="btnCloseOrderPurchaseConfirm">✕</button>
+        </div>
+        <div class="stack">
+          <p id="orderPurchaseConfirmMessage" class="hint" data-i18n="order_purchase_confirm_default_message">确认后将立即生成订单交易并广播。</p>
+          <div class="list">
+            <div class="row order-confirm-title-row">
+              <p><strong id="orderPurchaseConfirmProductName">-</strong></p>
+              <p id="orderPurchaseConfirmMerchant" class="hint">-</p>
+            </div>
+            <div class="row">
+              <p data-i18n="labelQuantity">数量</p>
+              <p><strong id="orderPurchaseConfirmQuantity">1</strong></p>
+            </div>
+            <div class="row">
+              <p data-i18n="order_amount_label">商品金额</p>
+              <p><strong id="orderPurchaseConfirmPrice">-</strong></p>
+            </div>
+            <div class="row">
+              <p data-i18n="buyer_deposit_20_refund_label">交易保证金（20%交易完成后退回）</p>
+              <p><strong id="orderPurchaseConfirmDeposit">-</strong></p>
+            </div>
+            <div class="row">
+              <p data-i18n="locked_total_label">锁定合计</p>
+              <p><strong id="orderPurchaseConfirmTotal">-</strong></p>
+            </div>
+            <div class="row">
+              <p data-i18n="fee_label">手续费</p>
+              <p><strong id="orderPurchaseConfirmFee">-</strong></p>
+            </div>
+            <div class="row">
+              <p data-i18n="total_spend_label">总支出</p>
+              <p><strong id="orderPurchaseConfirmSpendTotal">-</strong></p>
+            </div>
+          </div>
+          <div class="actions">
+            <button id="btnCancelOrderPurchaseConfirm" type="button" class="ghost" data-i18n="btnCancel">取消</button>
+            <button id="btnConfirmOrderPurchaseConfirm" type="button" data-i18n="confirm_and_broadcast_button">确认并广播</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="sellerAcceptConfirmModal" class="modal hidden">
+      <div class="modal-card auth-card order-purchase-confirm-card">
+        <div class="modal-head">
+          <h3 data-i18n="seller_accept_confirm_title">确认接单金额</h3>
+          <button id="btnCloseSellerAcceptConfirm" class="ghost icon-button modal-close-button" type="button" title="关闭" aria-label="关闭" data-i18n-title="btnCloseSellerAcceptConfirm" data-i18n-aria-label="btnCloseSellerAcceptConfirm">✕</button>
+        </div>
+        <div class="stack">
+          <p id="sellerAcceptConfirmMessage" class="hint" data-i18n="seller_accept_confirm_default_message">确认后将立即生成接单交易并广播。</p>
+          <div class="list">
+            <div class="row order-confirm-title-row">
+              <p><strong id="sellerAcceptConfirmProductName">-</strong></p>
+              <p id="sellerAcceptConfirmMerchant" class="hint">-</p>
+            </div>
+            <div class="row">
+              <p data-i18n="labelQuantity">数量</p>
+              <p><strong id="sellerAcceptConfirmQuantity">1</strong></p>
+            </div>
+            <div class="row">
+              <p data-i18n="order_amount_label">商品金额</p>
+              <p><strong id="sellerAcceptConfirmPrice">-</strong></p>
+            </div>
+            <div class="row">
+              <p data-i18n="buyer_locked_label">买方锁定</p>
+              <p><strong id="sellerAcceptConfirmBuyerLocked">-</strong></p>
+            </div>
+            <div class="row">
+              <p data-i18n="seller_deposit_10_refund_label">卖方保证金（10%交易完成后退回）</p>
+              <p><strong id="sellerAcceptConfirmSellerDeposit">-</strong></p>
+            </div>
+          </div>
+          <div class="actions">
+            <button id="btnCancelSellerAcceptConfirm" type="button" class="ghost" data-i18n="seller_order_cancel_confirm_button">取消订单并退款</button>
+            <button id="btnConfirmSellerAcceptConfirm" type="button" data-i18n="seller_accept_confirm_button">确认接单并广播</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="shipmentInfoModal" class="modal hidden">
+      <div class="modal-card auth-card">
+        <div class="modal-head">
+          <h3 data-i18n="seller_ship_info_title">确认发货</h3>
+          <button id="btnCloseShipmentInfo" class="ghost icon-button modal-close-button" type="button" title="关闭" aria-label="关闭" data-i18n-title="btnCloseShipmentInfo" data-i18n-aria-label="btnCloseShipmentInfo">✕</button>
+        </div>
+        <div class="stack">
+          <p id="shipmentInfoMessage" class="hint" data-i18n="seller_ship_info_message">请输入发货信息，最多 100 个字符。</p>
+          <label><span data-i18n="seller_ship_info_label">发货信息</span>
+            <input id="shipmentInfoInput" type="text" maxlength="100" placeholder="快递单号或必要说明" data-i18n-placeholder="seller_ship_info_placeholder" />
+          </label>
+          <div class="actions">
+            <button id="btnCancelShipmentInfo" type="button" class="ghost" data-i18n="btnCancel">取消</button>
+            <button id="btnConfirmShipmentInfo" type="button" data-i18n="seller_order_action_ship">确认发货</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="productDetailModal" class="modal hidden">
+      <div class="modal-card auth-card product-detail-modal-card">
+        <div class="modal-head">
+          <h3 id="productDetailTitle" data-i18n="product_detail_title">商品详情</h3>
+          <button id="btnCloseProductDetail" class="ghost icon-button modal-close-button" type="button" title="关闭" aria-label="关闭" data-i18n-title="btnCloseProductDetail" data-i18n-aria-label="btnCloseProductDetail">✕</button>
+        </div>
+        <div class="product-detail-layout">
+          <div class="product-detail-media">
+            <img id="productDetailImage" class="product-detail-image" alt="商品图片" data-i18n-alt="product_image_alt" />
+          </div>
+          <div class="product-detail-content">
+            <div class="taobao-product-price product-detail-price"><span class="taobao-product-currency">BSV</span><strong id="productDetailPrice">0.00000000</strong></div>
+            <p id="productDetailMerchant" class="hint">-</p>
+            <p id="productDetailCategory" class="hint">-</p>
+            <p id="productDetailStock" class="hint">-</p>
+            <label class="product-detail-qty">
+              <span data-i18n="labelQuantity">数量</span>
+              <input id="productDetailQuantity" type="number" min="1" step="1" value="1" />
+            </label>
+            <div id="productDetailDescription" class="row product-detail-description">-</div>
+            <div class="actions">
+              <button id="btnProductDetailBuy" type="button" data-i18n="buy_now_button">立即下单</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="txProgressModal" class="modal hidden">
+      <div class="modal-card auth-card">
+        <div class="modal-head">
+          <h3 id="txProgressTitle" data-i18n="tx_progress_title">交易处理中</h3>
+          <button id="btnCloseTxProgress" class="ghost icon-button modal-close-button" title="关闭" aria-label="关闭" data-i18n-title="btnCloseTxProgress" data-i18n-aria-label="btnCloseTxProgress">✕</button>
+        </div>
+        <div class="resync-progress-panel" style="margin-top:0;">
+          <div class="resync-progress-head">
+            <p id="txProgressSummary" class="hint" data-i18n="tx_progress_summary_waiting">等待任务启动...</p>
+          </div>
+          <div id="txProgressStepList" class="resync-step-list"></div>
+          <p id="txProgressElapsed" class="hint" data-i18n="tx_progress_elapsed_default">用时 0s</p>
+        </div>
+      </div>
+    </div>
+
+    <div id="resyncModal" class="modal hidden">
+      <div class="modal-card auth-card">
+        <div class="modal-head">
+          <h3 data-i18n="resync_title">Confirm resync</h3>
+          <button id="btnCloseResync" class="ghost icon-button modal-close-button" title="Close" aria-label="Close" data-i18n-title="btnCloseResync" data-i18n-aria-label="btnCloseResync">✕</button>
+        </div>
+        <div id="resyncConfirmPanel" class="stack">
+          <div class="warning-card">
+            <p><strong data-i18n="resync_warning_primary">This will clear local products, categories, orders, chat, and sync cache, then redownload from the specified block height.</strong></p>
+            <p data-i18n="resync_warning_secondary">If there are local changes not yet published on-chain, they may also be cleared.</p>
+          </div>
+          <label><span data-i18n="resync_bootstrap_label">Starting block height</span>
+            <input id="resyncBootstrapHeight" type="number" min="947111" step="1" placeholder="For example 947111" data-i18n-placeholder="resync_bootstrap_placeholder" />
+          </label>
+          <p class="hint" id="resyncModalHint" data-i18n="resync_modal_hint">Choose the earliest height you need to rescan. The lower the height, the longer syncing will take.</p>
+          <div class="actions">
+            <button id="btnConfirmResync" type="button" data-i18n="btnConfirmResync">Clear and resync</button>
+          </div>
+        </div>
+        <div id="resyncProgressPanel" class="resync-progress-panel hidden">
+          <div class="resync-progress-head">
+            <p id="resyncProgressTitle" class="resync-progress-title" data-i18n="resync_progress_title">Processing in background</p>
+            <p id="resyncProgressSummary" class="hint" data-i18n="resync_progress_summary">Waiting for task startup...</p>
+          </div>
+          <div class="sync-progress-wrap" aria-hidden="true">
+            <div id="resyncProgressBar" class="sync-progress-bar"></div>
+            <span id="resyncProgressText" class="sync-progress-text">0%</span>
+          </div>
+          <div id="resyncStepList" class="resync-step-list"></div>
+          <p id="resyncElapsed" class="hint" data-i18n="resync_elapsed_default">Elapsed 0s</p>
+        </div>
+      </div>
+    </div>
+
+    <div id="conflictModal" class="modal hidden">
+      <div class="modal-card auth-card">
+        <div class="modal-head">
+          <strong id="conflictModalTitle" data-i18n="conflict_modal_title">Data conflict detected</strong>
+          <button id="btnCloseConflictModal" class="ghost icon-button modal-close-button" title="Close" aria-label="Close" data-i18n-title="btnCloseConflictModal" data-i18n-aria-label="btnCloseConflictModal">✕</button>
+        </div>
+        <div class="stack">
+          <p id="conflictModalMessage" class="hint" data-i18n="conflict_modal_message">The database value has changed. Choose how to proceed.</p>
+          <div class="actions">
+            <button id="btnCancelConflictModal" type="button" class="ghost" data-i18n="btnConflictCancel">Use latest data</button>
+            <button id="btnConfirmConflictModal" type="button" data-i18n="btnConflictConfirm">Keep my changes</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="loginModal" class="modal auth-modal">
+      <div class="modal-card auth-card">
+        <div class="modal-head">
+          <h3 data-i18n="login_modal_title">Enter marketplace</h3>
+        </div>
+        <p class="hint" id="loginHint" data-i18n="login_hint_loading">Checking wallet status...</p>
+        <div class="tabs small">
+          <button id="tabLoginPassword" class="tab active" data-i18n="tabLoginPassword">Password login</button>
+          <button id="tabLoginCreate" class="tab" data-i18n="tabLoginCreate">Create wallet</button>
+          <button id="tabLoginImport" class="tab" data-i18n="tabLoginImport">Import mnemonic</button>
+        </div>
+        <div class="stack">
+          <label id="loginPasswordWrap"><span data-i18n="login_password_label">Wallet password</span>
+            <input id="loginPassword" type="password" placeholder="Enter wallet password" data-i18n-placeholder="login_password_placeholder" />
+          </label>
+          <label id="loginMnemonicWrap" class="hidden" hidden>
+            <span class="login-mnemonic-head">
+              <span data-i18n="login_mnemonic_label">Mnemonic</span>
+              <button id="btnGenerateMnemonic" type="button" data-i18n="btnGenerateMnemonic">Generate automatically</button>
+            </span>
+            <textarea id="loginMnemonic" rows="3" placeholder="Enter 12/24-word mnemonic" data-i18n-placeholder="login_mnemonic_placeholder"></textarea>
+          </label>
+          <button id="btnLoginSubmit" data-i18n="btnLoginSubmit">Enter marketplace</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="loadingModal" class="modal hidden">
+      <div class="modal-card auth-card">
+        <div class="modal-head">
+          <h3 data-i18n="loading_modal_title">Loading</h3>
+        </div>
+        <p class="hint" id="loadingHint" data-i18n="login_loading">Loading home page data...</p>
+      </div>
+    </div>
+
+    <div id="noticeStack" class="notice-stack"></div>
+
+    <script src="./catalog_default_categories.js?v=20260423-default-categories"></script>
+    <script>window.__APP_ASSET_VERSION = "20260430-protocol-v1-h947111";</script>
+    <script src="./trade_client.js?v=20260423-trade-client"></script>
+    <script src="./app.js?v=20260430-protocol-v1-h947111"></script>
+  </body>
+</html>

@@ -1,0 +1,2517 @@
+{
+  "summary": {
+    "startedAt": "2026-03-13T23:01:31.490Z",
+    "finishedAt": "2026-03-13T23:02:04.336Z",
+    "totalPeers": 60,
+    "advertisedBloomPeers": 40,
+    "handshakePassed": 57,
+    "initialPingPassed": 54,
+    "filterloadAccepted": 39,
+    "filteraddAccepted": 37,
+    "filterclearAccepted": 37,
+    "fullPass": 37
+  },
+  "results": [
+    {
+      "node": "100.11.85.230:8333",
+      "advertisedServices": "0000000000000425",
+      "advertisedVersion": 70016,
+      "advertisedBloom": true,
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 196,
+          "value": "connected"
+        },
+        "ping_initial": {
+          "ok": true,
+          "ms": 146,
+          "value": 146
+        },
+        "filterload": {
+          "ok": true,
+          "ms": 901,
+          "value": "accepted"
+        },
+        "ping_after_filterload": {
+          "ok": true,
+          "ms": 110,
+          "value": 109
+        },
+        "filteradd": {
+          "ok": true,
+          "ms": 915,
+          "value": "accepted"
+        },
+        "ping_after_filteradd": {
+          "ok": true,
+          "ms": 108,
+          "value": 108
+        },
+        "filterclear": {
+          "ok": true,
+          "ms": 901,
+          "value": "accepted"
+        },
+        "ping_after_filterclear": {
+          "ok": true,
+          "ms": 85,
+          "value": 85
+        }
+      },
+      "pass": true
+    },
+    {
+      "node": "100.49.247.84:8333",
+      "advertisedServices": "0000000000000425",
+      "advertisedVersion": 70016,
+      "advertisedBloom": true,
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 104,
+          "value": "connected"
+        },
+        "ping_initial": {
+          "ok": true,
+          "ms": 97,
+          "value": 97
+        },
+        "filterload": {
+          "ok": true,
+          "ms": 901,
+          "value": "accepted"
+        },
+        "ping_after_filterload": {
+          "ok": true,
+          "ms": 35,
+          "value": 35
+        },
+        "filteradd": {
+          "ok": true,
+          "ms": 900,
+          "value": "accepted"
+        },
+        "ping_after_filteradd": {
+          "ok": true,
+          "ms": 65,
+          "value": 64
+        },
+        "filterclear": {
+          "ok": true,
+          "ms": 899,
+          "value": "accepted"
+        },
+        "ping_after_filterclear": {
+          "ok": true,
+          "ms": 31,
+          "value": 30
+        }
+      },
+      "pass": true
+    },
+    {
+      "node": "100.7.12.142:8333",
+      "advertisedServices": "0000000000000425",
+      "advertisedVersion": 70016,
+      "advertisedBloom": true,
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 167,
+          "value": "connected"
+        },
+        "ping_initial": {
+          "ok": true,
+          "ms": 45,
+          "value": 45
+        },
+        "filterload": {
+          "ok": true,
+          "ms": 900,
+          "value": "accepted"
+        },
+        "ping_after_filterload": {
+          "ok": true,
+          "ms": 44,
+          "value": 44
+        },
+        "filteradd": {
+          "ok": true,
+          "ms": 900,
+          "value": "accepted"
+        },
+        "ping_after_filteradd": {
+          "ok": true,
+          "ms": 56,
+          "value": 56
+        },
+        "filterclear": {
+          "ok": true,
+          "ms": 900,
+          "value": "accepted"
+        },
+        "ping_after_filterclear": {
+          "ok": true,
+          "ms": 44,
+          "value": 44
+        }
+      },
+      "pass": true
+    },
+    {
+      "node": "103.156.118.194:8333",
+      "advertisedServices": "0000000000000425",
+      "advertisedVersion": 70016,
+      "advertisedBloom": true,
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 1077,
+          "value": "connected"
+        },
+        "ping_initial": {
+          "ok": true,
+          "ms": 586,
+          "value": 586
+        },
+        "filterload": {
+          "ok": true,
+          "ms": 900,
+          "value": "accepted"
+        },
+        "ping_after_filterload": {
+          "ok": true,
+          "ms": 1201,
+          "value": 1200
+        },
+        "filteradd": {
+          "ok": true,
+          "ms": 901,
+          "value": "accepted"
+        },
+        "ping_after_filteradd": {
+          "ok": true,
+          "ms": 270,
+          "value": 270
+        },
+        "filterclear": {
+          "ok": true,
+          "ms": 900,
+          "value": "accepted"
+        },
+        "ping_after_filterclear": {
+          "ok": true,
+          "ms": 274,
+          "value": 274
+        }
+      },
+      "pass": true
+    },
+    {
+      "node": "104.248.81.232:8333",
+      "advertisedServices": "0000000000000425",
+      "advertisedVersion": 70016,
+      "advertisedBloom": true,
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 306,
+          "value": "connected"
+        },
+        "ping_initial": {
+          "ok": true,
+          "ms": 193,
+          "value": 193
+        },
+        "filterload": {
+          "ok": true,
+          "ms": 905,
+          "value": "accepted"
+        },
+        "ping_after_filterload": {
+          "ok": true,
+          "ms": 95,
+          "value": 95
+        },
+        "filteradd": {
+          "ok": true,
+          "ms": 901,
+          "value": "accepted"
+        },
+        "ping_after_filteradd": {
+          "ok": true,
+          "ms": 105,
+          "value": 105
+        },
+        "filterclear": {
+          "ok": true,
+          "ms": 904,
+          "value": "accepted"
+        },
+        "ping_after_filterclear": {
+          "ok": true,
+          "ms": 97,
+          "value": 97
+        }
+      },
+      "pass": true
+    },
+    {
+      "node": "107.136.51.230:8333",
+      "advertisedServices": "0000000000000875",
+      "advertisedVersion": 80003,
+      "advertisedBloom": true,
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 160,
+          "value": "connected"
+        },
+        "ping_initial": {
+          "ok": true,
+          "ms": 139,
+          "value": 139
+        },
+        "filterload": {
+          "ok": true,
+          "ms": 900,
+          "value": "accepted"
+        },
+        "ping_after_filterload": {
+          "ok": true,
+          "ms": 55,
+          "value": 55
+        },
+        "filteradd": {
+          "ok": true,
+          "ms": 900,
+          "value": "accepted"
+        },
+        "ping_after_filteradd": {
+          "ok": true,
+          "ms": 44,
+          "value": 43
+        },
+        "filterclear": {
+          "ok": true,
+          "ms": 900,
+          "value": "accepted"
+        },
+        "ping_after_filterclear": {
+          "ok": true,
+          "ms": 42,
+          "value": 42
+        }
+      },
+      "pass": true
+    },
+    {
+      "node": "107.210.90.217:8333",
+      "advertisedServices": "0000000000000425",
+      "advertisedVersion": 70016,
+      "advertisedBloom": true,
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 212,
+          "value": "connected"
+        },
+        "ping_initial": {
+          "ok": true,
+          "ms": 56,
+          "value": 56
+        },
+        "filterload": {
+          "ok": true,
+          "ms": 901,
+          "value": "accepted"
+        },
+        "ping_after_filterload": {
+          "ok": true,
+          "ms": 85,
+          "value": 85
+        },
+        "filteradd": {
+          "ok": true,
+          "ms": 900,
+          "value": "accepted"
+        },
+        "ping_after_filteradd": {
+          "ok": true,
+          "ms": 55,
+          "value": 55
+        },
+        "filterclear": {
+          "ok": true,
+          "ms": 902,
+          "value": "accepted"
+        },
+        "ping_after_filterclear": {
+          "ok": true,
+          "ms": 55,
+          "value": 55
+        }
+      },
+      "pass": true
+    },
+    {
+      "node": "115.187.38.11:8333",
+      "advertisedServices": "0000000000000425",
+      "advertisedVersion": 70016,
+      "advertisedBloom": true,
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 950,
+          "value": "connected"
+        },
+        "ping_initial": {
+          "ok": true,
+          "ms": 669,
+          "value": 669
+        },
+        "filterload": {
+          "ok": true,
+          "ms": 902,
+          "value": "accepted"
+        },
+        "ping_after_filterload": {
+          "ok": true,
+          "ms": 301,
+          "value": 301
+        },
+        "filteradd": {
+          "ok": true,
+          "ms": 900,
+          "value": "accepted"
+        },
+        "ping_after_filteradd": {
+          "ok": true,
+          "ms": 311,
+          "value": 311
+        },
+        "filterclear": {
+          "ok": true,
+          "ms": 902,
+          "value": "accepted"
+        },
+        "ping_after_filterclear": {
+          "ok": true,
+          "ms": 303,
+          "value": 303
+        }
+      },
+      "pass": true
+    },
+    {
+      "node": "124.122.134.114:8333",
+      "advertisedServices": "0000000000000424",
+      "advertisedVersion": 70016,
+      "advertisedBloom": true,
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 874,
+          "value": "connected"
+        },
+        "ping_initial": {
+          "ok": true,
+          "ms": 282,
+          "value": 282
+        },
+        "filterload": {
+          "ok": true,
+          "ms": 902,
+          "value": "accepted"
+        },
+        "ping_after_filterload": {
+          "ok": true,
+          "ms": 276,
+          "value": 276
+        },
+        "filteradd": {
+          "ok": true,
+          "ms": 904,
+          "value": "accepted"
+        },
+        "ping_after_filteradd": {
+          "ok": true,
+          "ms": 277,
+          "value": 277
+        },
+        "filterclear": {
+          "ok": true,
+          "ms": 900,
+          "value": "accepted"
+        },
+        "ping_after_filterclear": {
+          "ok": true,
+          "ms": 278,
+          "value": 278
+        }
+      },
+      "pass": true
+    },
+    {
+      "node": "13.52.142.190:8333",
+      "advertisedServices": "0000000000000425",
+      "advertisedVersion": 70016,
+      "advertisedBloom": true,
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 242,
+          "value": "connected"
+        },
+        "ping_initial": {
+          "ok": true,
+          "ms": 200,
+          "value": 200
+        },
+        "filterload": {
+          "ok": true,
+          "ms": 900,
+          "value": "accepted"
+        },
+        "ping_after_filterload": {
+          "ok": true,
+          "ms": 79,
+          "value": 79
+        },
+        "filteradd": {
+          "ok": true,
+          "ms": 903,
+          "value": "accepted"
+        },
+        "ping_after_filteradd": {
+          "ok": true,
+          "ms": 80,
+          "value": 80
+        },
+        "filterclear": {
+          "ok": true,
+          "ms": 901,
+          "value": "accepted"
+        },
+        "ping_after_filterclear": {
+          "ok": true,
+          "ms": 80,
+          "value": 80
+        }
+      },
+      "pass": true
+    },
+    {
+      "node": "135.125.170.182:8333",
+      "advertisedServices": "0000000000000021",
+      "advertisedVersion": 70016,
+      "advertisedBloom": false,
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 232,
+          "value": "connected"
+        },
+        "ping_initial": {
+          "ok": true,
+          "ms": 230,
+          "value": 230
+        },
+        "filterload": {
+          "ok": false,
+          "ms": 901,
+          "error": "[object Object]"
+        }
+      },
+      "pass": false,
+      "error": "[object Object]",
+      "reject": null,
+      "disconnectReason": {
+        "ticker": "BSV",
+        "node": "135.125.170.182:8333",
+        "disconnects": 1
+      }
+    },
+    {
+      "node": "135.148.136.25:8333",
+      "advertisedServices": "0000000000000425",
+      "advertisedVersion": 70016,
+      "advertisedBloom": true,
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 76,
+          "value": "connected"
+        },
+        "ping_initial": {
+          "ok": true,
+          "ms": 90,
+          "value": 90
+        },
+        "filterload": {
+          "ok": true,
+          "ms": 902,
+          "value": "accepted"
+        },
+        "ping_after_filterload": {
+          "ok": true,
+          "ms": 26,
+          "value": 26
+        },
+        "filteradd": {
+          "ok": true,
+          "ms": 900,
+          "value": "accepted"
+        },
+        "ping_after_filteradd": {
+          "ok": true,
+          "ms": 26,
+          "value": 25
+        },
+        "filterclear": {
+          "ok": true,
+          "ms": 901,
+          "value": "accepted"
+        },
+        "ping_after_filterclear": {
+          "ok": true,
+          "ms": 26,
+          "value": 26
+        }
+      },
+      "pass": true
+    },
+    {
+      "node": "135.181.137.155:8333",
+      "advertisedServices": "0000000000000021",
+      "advertisedVersion": 70016,
+      "advertisedBloom": false,
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 282,
+          "value": "connected"
+        },
+        "ping_initial": {
+          "ok": true,
+          "ms": 281,
+          "value": 281
+        },
+        "filterload": {
+          "ok": false,
+          "ms": 901,
+          "error": "[object Object]"
+        }
+      },
+      "pass": false,
+      "error": "[object Object]",
+      "reject": null,
+      "disconnectReason": {
+        "ticker": "BSV",
+        "node": "135.181.137.155:8333",
+        "disconnects": 1
+      }
+    },
+    {
+      "node": "136.144.241.205:8333",
+      "advertisedServices": "0000000000000425",
+      "advertisedVersion": 70016,
+      "advertisedBloom": true,
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 325,
+          "value": "connected"
+        },
+        "ping_initial": {
+          "ok": true,
+          "ms": 216,
+          "value": 216
+        },
+        "filterload": {
+          "ok": true,
+          "ms": 901,
+          "value": "accepted"
+        },
+        "ping_after_filterload": {
+          "ok": true,
+          "ms": 110,
+          "value": 110
+        },
+        "filteradd": {
+          "ok": true,
+          "ms": 902,
+          "value": "accepted"
+        },
+        "ping_after_filteradd": {
+          "ok": true,
+          "ms": 108,
+          "value": 108
+        },
+        "filterclear": {
+          "ok": true,
+          "ms": 901,
+          "value": "accepted"
+        },
+        "ping_after_filterclear": {
+          "ok": true,
+          "ms": 108,
+          "value": 108
+        }
+      },
+      "pass": true
+    },
+    {
+      "node": "141.95.126.79:8333",
+      "advertisedServices": "0000000000000021",
+      "advertisedVersion": 70016,
+      "advertisedBloom": false,
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 220,
+          "value": "connected"
+        },
+        "ping_initial": {
+          "ok": true,
+          "ms": 216,
+          "value": 216
+        },
+        "filterload": {
+          "ok": false,
+          "ms": 900,
+          "error": "[object Object]"
+        }
+      },
+      "pass": false,
+      "error": "[object Object]",
+      "reject": null,
+      "disconnectReason": {
+        "ticker": "BSV",
+        "node": "141.95.126.79:8333",
+        "disconnects": 1
+      }
+    },
+    {
+      "node": "144.91.125.100:8333",
+      "advertisedServices": "0000000001000405",
+      "advertisedVersion": 70016,
+      "advertisedBloom": true,
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 241,
+          "value": "connected"
+        },
+        "ping_initial": {
+          "ok": true,
+          "ms": 239,
+          "value": 239
+        },
+        "filterload": {
+          "ok": true,
+          "ms": 900,
+          "value": "accepted"
+        },
+        "ping_after_filterload": {
+          "ok": true,
+          "ms": 118,
+          "value": 117
+        },
+        "filteradd": {
+          "ok": true,
+          "ms": 900,
+          "value": "accepted"
+        },
+        "ping_after_filteradd": {
+          "ok": true,
+          "ms": 115,
+          "value": 115
+        },
+        "filterclear": {
+          "ok": true,
+          "ms": 901,
+          "value": "accepted"
+        },
+        "ping_after_filterclear": {
+          "ok": true,
+          "ms": 119,
+          "value": 119
+        }
+      },
+      "pass": true
+    },
+    {
+      "node": "144.91.97.194:8333",
+      "advertisedServices": "0000000001000405",
+      "advertisedVersion": 70016,
+      "advertisedBloom": true,
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 227,
+          "value": "connected"
+        },
+        "ping_initial": {
+          "ok": true,
+          "ms": 229,
+          "value": 229
+        },
+        "filterload": {
+          "ok": true,
+          "ms": 901,
+          "value": "accepted"
+        },
+        "ping_after_filterload": {
+          "ok": true,
+          "ms": 114,
+          "value": 114
+        },
+        "filteradd": {
+          "ok": true,
+          "ms": 901,
+          "value": "accepted"
+        },
+        "ping_after_filteradd": {
+          "ok": true,
+          "ms": 112,
+          "value": 112
+        },
+        "filterclear": {
+          "ok": true,
+          "ms": 902,
+          "value": "accepted"
+        },
+        "ping_after_filterclear": {
+          "ok": true,
+          "ms": 114,
+          "value": 114
+        }
+      },
+      "pass": true
+    },
+    {
+      "node": "148.113.16.157:8333",
+      "advertisedServices": "0000000000000405",
+      "advertisedVersion": 70016,
+      "advertisedBloom": true,
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 541,
+          "value": "connected"
+        },
+        "ping_initial": {
+          "ok": true,
+          "ms": 539,
+          "value": 539
+        },
+        "filterload": {
+          "ok": true,
+          "ms": 903,
+          "value": "accepted"
+        },
+        "ping_after_filterload": {
+          "ok": true,
+          "ms": 269,
+          "value": 269
+        },
+        "filteradd": {
+          "ok": true,
+          "ms": 902,
+          "value": "accepted"
+        },
+        "ping_after_filteradd": {
+          "ok": true,
+          "ms": 271,
+          "value": 271
+        },
+        "filterclear": {
+          "ok": true,
+          "ms": 901,
+          "value": "accepted"
+        },
+        "ping_after_filterclear": {
+          "ok": true,
+          "ms": 270,
+          "value": 270
+        }
+      },
+      "pass": true
+    },
+    {
+      "node": "148.251.110.43:8333",
+      "advertisedServices": "0000000000000425",
+      "advertisedVersion": 70016,
+      "advertisedBloom": true,
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 399,
+          "value": "connected"
+        },
+        "ping_initial": {
+          "ok": true,
+          "ms": 305,
+          "value": 305
+        },
+        "filterload": {
+          "ok": true,
+          "ms": 902,
+          "value": "accepted"
+        },
+        "ping_after_filterload": {
+          "ok": true,
+          "ms": 134,
+          "value": 133
+        },
+        "filteradd": {
+          "ok": true,
+          "ms": 900,
+          "value": "accepted"
+        },
+        "ping_after_filteradd": {
+          "ok": true,
+          "ms": 135,
+          "value": 135
+        },
+        "filterclear": {
+          "ok": true,
+          "ms": 901,
+          "value": "accepted"
+        },
+        "ping_after_filterclear": {
+          "ok": true,
+          "ms": 133,
+          "value": 133
+        }
+      },
+      "pass": true
+    },
+    {
+      "node": "15.235.232.121:8333",
+      "advertisedServices": "0000000000000021",
+      "advertisedVersion": 70016,
+      "advertisedBloom": false,
+      "steps": {
+        "connect": {
+          "ok": false,
+          "ms": 248,
+          "error": "disconnected"
+        }
+      },
+      "pass": false,
+      "error": "disconnected",
+      "reject": null,
+      "disconnectReason": {
+        "ticker": "BSV",
+        "node": "15.235.232.121:8333",
+        "disconnects": 1
+      }
+    },
+    {
+      "node": "152.53.90.71:8333",
+      "advertisedServices": "0000000001000405",
+      "advertisedVersion": 70016,
+      "advertisedBloom": true,
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 65,
+          "value": "connected"
+        },
+        "ping_initial": {
+          "ok": true,
+          "ms": 64,
+          "value": 64
+        },
+        "filterload": {
+          "ok": true,
+          "ms": 900,
+          "value": "accepted"
+        },
+        "ping_after_filterload": {
+          "ok": true,
+          "ms": 32,
+          "value": 32
+        },
+        "filteradd": {
+          "ok": true,
+          "ms": 900,
+          "value": "accepted"
+        },
+        "ping_after_filteradd": {
+          "ok": true,
+          "ms": 32,
+          "value": 32
+        },
+        "filterclear": {
+          "ok": true,
+          "ms": 900,
+          "value": "accepted"
+        },
+        "ping_after_filterclear": {
+          "ok": true,
+          "ms": 34,
+          "value": 33
+        }
+      },
+      "pass": true
+    },
+    {
+      "node": "157.143.83.144:8333",
+      "advertisedServices": "0000000001000405",
+      "advertisedVersion": 70016,
+      "advertisedBloom": true,
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 259,
+          "value": "connected"
+        },
+        "ping_initial": {
+          "ok": true,
+          "ms": 263,
+          "value": 263
+        },
+        "filterload": {
+          "ok": true,
+          "ms": 900,
+          "value": "accepted"
+        },
+        "ping_after_filterload": {
+          "ok": true,
+          "ms": 128,
+          "value": 128
+        },
+        "filteradd": {
+          "ok": true,
+          "ms": 900,
+          "value": "accepted"
+        },
+        "ping_after_filteradd": {
+          "ok": true,
+          "ms": 129,
+          "value": 129
+        },
+        "filterclear": {
+          "ok": true,
+          "ms": 902,
+          "value": "accepted"
+        },
+        "ping_after_filterclear": {
+          "ok": true,
+          "ms": 129,
+          "value": 128
+        }
+      },
+      "pass": true
+    },
+    {
+      "node": "159.89.105.214:8333",
+      "advertisedServices": "0000000000000020",
+      "advertisedVersion": 70016,
+      "advertisedBloom": false,
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 209,
+          "value": "connected"
+        },
+        "ping_initial": {
+          "ok": true,
+          "ms": 207,
+          "value": 207
+        },
+        "filterload": {
+          "ok": false,
+          "ms": 901,
+          "error": "[object Object]"
+        }
+      },
+      "pass": false,
+      "error": "[object Object]",
+      "reject": null,
+      "disconnectReason": {
+        "ticker": "BSV",
+        "node": "159.89.105.214:8333",
+        "disconnects": 1
+      }
+    },
+    {
+      "node": "161.97.82.60:8333",
+      "advertisedServices": "0000000000000405",
+      "advertisedVersion": 70016,
+      "advertisedBloom": true,
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 248,
+          "value": "connected"
+        },
+        "ping_initial": {
+          "ok": true,
+          "ms": 243,
+          "value": 243
+        },
+        "filterload": {
+          "ok": true,
+          "ms": 900,
+          "value": "accepted"
+        },
+        "ping_after_filterload": {
+          "ok": true,
+          "ms": 128,
+          "value": 128
+        },
+        "filteradd": {
+          "ok": true,
+          "ms": 900,
+          "value": "accepted"
+        },
+        "ping_after_filteradd": {
+          "ok": true,
+          "ms": 131,
+          "value": 131
+        },
+        "filterclear": {
+          "ok": true,
+          "ms": 900,
+          "value": "accepted"
+        },
+        "ping_after_filterclear": {
+          "ok": true,
+          "ms": 122,
+          "value": 122
+        }
+      },
+      "pass": true
+    },
+    {
+      "node": "162.19.222.167:8333",
+      "advertisedServices": "0000000000000021",
+      "advertisedVersion": 70016,
+      "advertisedBloom": false,
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 236,
+          "value": "connected"
+        },
+        "ping_initial": {
+          "ok": true,
+          "ms": 236,
+          "value": 236
+        },
+        "filterload": {
+          "ok": false,
+          "ms": 909,
+          "error": "[object Object]"
+        }
+      },
+      "pass": false,
+      "error": "[object Object]",
+      "reject": null,
+      "disconnectReason": {
+        "ticker": "BSV",
+        "node": "162.19.222.167:8333",
+        "disconnects": 1
+      }
+    },
+    {
+      "node": "162.19.56.103:8333",
+      "advertisedServices": "0000000000000405",
+      "advertisedVersion": 70016,
+      "advertisedBloom": true,
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 217,
+          "value": "connected"
+        },
+        "ping_initial": {
+          "ok": true,
+          "ms": 216,
+          "value": 216
+        },
+        "filterload": {
+          "ok": true,
+          "ms": 902,
+          "value": "accepted"
+        },
+        "ping_after_filterload": {
+          "ok": true,
+          "ms": 108,
+          "value": 108
+        },
+        "filteradd": {
+          "ok": true,
+          "ms": 908,
+          "value": "accepted"
+        },
+        "ping_after_filteradd": {
+          "ok": true,
+          "ms": 108,
+          "value": 108
+        },
+        "filterclear": {
+          "ok": true,
+          "ms": 901,
+          "value": "accepted"
+        },
+        "ping_after_filterclear": {
+          "ok": true,
+          "ms": 108,
+          "value": 108
+        }
+      },
+      "pass": true
+    },
+    {
+      "node": "162.55.69.228:8333",
+      "advertisedServices": "0000000000000425",
+      "advertisedVersion": 70016,
+      "advertisedBloom": true,
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 393,
+          "value": "connected"
+        },
+        "ping_initial": {
+          "ok": true,
+          "ms": 302,
+          "value": 302
+        },
+        "filterload": {
+          "ok": true,
+          "ms": 901,
+          "value": "accepted"
+        },
+        "ping_after_filterload": {
+          "ok": true,
+          "ms": 132,
+          "value": 131
+        },
+        "filteradd": {
+          "ok": true,
+          "ms": 901,
+          "value": "accepted"
+        },
+        "ping_after_filteradd": {
+          "ok": true,
+          "ms": 132,
+          "value": 132
+        },
+        "filterclear": {
+          "ok": true,
+          "ms": 901,
+          "value": "accepted"
+        },
+        "ping_after_filterclear": {
+          "ok": true,
+          "ms": 132,
+          "value": 132
+        }
+      },
+      "pass": true
+    },
+    {
+      "node": "164.132.247.87:8333",
+      "advertisedServices": "0000000000000021",
+      "advertisedVersion": 70016,
+      "advertisedBloom": false,
+      "steps": {
+        "connect": {
+          "ok": false,
+          "ms": 200,
+          "error": "disconnected"
+        }
+      },
+      "pass": false,
+      "error": "disconnected",
+      "reject": null,
+      "disconnectReason": {
+        "ticker": "BSV",
+        "node": "164.132.247.87:8333",
+        "disconnects": 1
+      }
+    },
+    {
+      "node": "172.93.220.241:8333",
+      "advertisedServices": "0000000001000405",
+      "advertisedVersion": 70016,
+      "advertisedBloom": true,
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 358,
+          "value": "connected"
+        },
+        "ping_initial": {
+          "ok": true,
+          "ms": 359,
+          "value": 358
+        },
+        "filterload": {
+          "ok": true,
+          "ms": 899,
+          "value": "accepted"
+        },
+        "ping_after_filterload": {
+          "ok": true,
+          "ms": 185,
+          "value": 185
+        },
+        "filteradd": {
+          "ok": true,
+          "ms": 900,
+          "value": "accepted"
+        },
+        "ping_after_filteradd": {
+          "ok": true,
+          "ms": 180,
+          "value": 180
+        },
+        "filterclear": {
+          "ok": true,
+          "ms": 901,
+          "value": "accepted"
+        },
+        "ping_after_filterclear": {
+          "ok": true,
+          "ms": 183,
+          "value": 183
+        }
+      },
+      "pass": true
+    },
+    {
+      "node": "194.14.247.43:8333",
+      "advertisedServices": "0000000000000425",
+      "advertisedVersion": 70016,
+      "advertisedBloom": true,
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 339,
+          "value": "connected"
+        },
+        "ping_initial": {
+          "ok": true,
+          "ms": 265,
+          "value": 265
+        },
+        "filterload": {
+          "ok": true,
+          "ms": 902,
+          "value": "accepted"
+        },
+        "ping_after_filterload": {
+          "ok": true,
+          "ms": 113,
+          "value": 113
+        },
+        "filteradd": {
+          "ok": false,
+          "ms": 900,
+          "error": "[object Object]"
+        }
+      },
+      "pass": false,
+      "error": "[object Object]",
+      "reject": null,
+      "disconnectReason": {
+        "ticker": "BSV",
+        "node": "194.14.247.43:8333",
+        "disconnects": 1
+      }
+    },
+    {
+      "node": "195.144.22.198:8333",
+      "advertisedServices": "0000000000000021",
+      "advertisedVersion": 70016,
+      "advertisedBloom": false,
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 208,
+          "value": "connected"
+        },
+        "ping_initial": {
+          "ok": true,
+          "ms": 209,
+          "value": 209
+        },
+        "filterload": {
+          "ok": false,
+          "ms": 901,
+          "error": "[object Object]"
+        }
+      },
+      "pass": false,
+      "error": "[object Object]",
+      "reject": null,
+      "disconnectReason": {
+        "ticker": "BSV",
+        "node": "195.144.22.198:8333",
+        "disconnects": 1
+      }
+    },
+    {
+      "node": "198.13.136.4:8333",
+      "advertisedServices": "0000000000000425",
+      "advertisedVersion": 70016,
+      "advertisedBloom": true,
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 81,
+          "value": "connected"
+        },
+        "ping_initial": {
+          "ok": true,
+          "ms": 95,
+          "value": 94
+        },
+        "filterload": {
+          "ok": false,
+          "ms": 900,
+          "error": "[object Object]"
+        }
+      },
+      "pass": false,
+      "error": "[object Object]",
+      "reject": null,
+      "disconnectReason": {
+        "ticker": "BSV",
+        "node": "198.13.136.4:8333",
+        "disconnects": 1
+      }
+    },
+    {
+      "node": "198.154.93.195:8333",
+      "advertisedServices": "0000000000000021",
+      "advertisedVersion": 70016,
+      "advertisedBloom": false,
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 216,
+          "value": "connected"
+        },
+        "ping_initial": {
+          "ok": false,
+          "ms": 36,
+          "error": "disconnected"
+        }
+      },
+      "pass": false,
+      "error": "disconnected",
+      "reject": null,
+      "disconnectReason": {
+        "ticker": "BSV",
+        "node": "198.154.93.195:8333",
+        "disconnects": 1
+      }
+    },
+    {
+      "node": "198.154.93.210:8333",
+      "advertisedServices": "0000000000000021",
+      "advertisedVersion": 70016,
+      "advertisedBloom": false,
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 213,
+          "value": "connected"
+        },
+        "ping_initial": {
+          "ok": true,
+          "ms": 212,
+          "value": 212
+        },
+        "filterload": {
+          "ok": false,
+          "ms": 899,
+          "error": "[object Object]"
+        }
+      },
+      "pass": false,
+      "error": "[object Object]",
+      "reject": null,
+      "disconnectReason": {
+        "ticker": "BSV",
+        "node": "198.154.93.210:8333",
+        "disconnects": 1
+      }
+    },
+    {
+      "node": "207.180.216.62:8333",
+      "advertisedServices": "0000000001000405",
+      "advertisedVersion": 70016,
+      "advertisedBloom": true,
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 243,
+          "value": "connected"
+        },
+        "ping_initial": {
+          "ok": true,
+          "ms": 238,
+          "value": 238
+        },
+        "filterload": {
+          "ok": true,
+          "ms": 900,
+          "value": "accepted"
+        },
+        "ping_after_filterload": {
+          "ok": true,
+          "ms": 183,
+          "value": 183
+        },
+        "filteradd": {
+          "ok": true,
+          "ms": 900,
+          "value": "accepted"
+        },
+        "ping_after_filteradd": {
+          "ok": true,
+          "ms": 139,
+          "value": 139
+        },
+        "filterclear": {
+          "ok": true,
+          "ms": 904,
+          "value": "accepted"
+        },
+        "ping_after_filterclear": {
+          "ok": true,
+          "ms": 129,
+          "value": 129
+        }
+      },
+      "pass": true
+    },
+    {
+      "node": "3.129.16.32:8333",
+      "advertisedServices": "0000000000000425",
+      "advertisedVersion": 70016,
+      "advertisedBloom": true,
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 87,
+          "value": "connected"
+        },
+        "ping_initial": {
+          "ok": true,
+          "ms": 28,
+          "value": 28
+        },
+        "filterload": {
+          "ok": true,
+          "ms": 900,
+          "value": "accepted"
+        },
+        "ping_after_filterload": {
+          "ok": true,
+          "ms": 28,
+          "value": 27
+        },
+        "filteradd": {
+          "ok": true,
+          "ms": 900,
+          "value": "accepted"
+        },
+        "ping_after_filteradd": {
+          "ok": true,
+          "ms": 28,
+          "value": 28
+        },
+        "filterclear": {
+          "ok": true,
+          "ms": 901,
+          "value": "accepted"
+        },
+        "ping_after_filterclear": {
+          "ok": true,
+          "ms": 28,
+          "value": 27
+        }
+      },
+      "pass": true
+    },
+    {
+      "node": "3.228.193.128:8333",
+      "advertisedServices": "0000000000000425",
+      "advertisedVersion": 70016,
+      "advertisedBloom": true,
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 89,
+          "value": "connected"
+        },
+        "ping_initial": {
+          "ok": true,
+          "ms": 101,
+          "value": 101
+        },
+        "filterload": {
+          "ok": true,
+          "ms": 901,
+          "value": "accepted"
+        },
+        "ping_after_filterload": {
+          "ok": true,
+          "ms": 30,
+          "value": 30
+        },
+        "filteradd": {
+          "ok": false,
+          "ms": 902,
+          "error": "[object Object]"
+        }
+      },
+      "pass": false,
+      "error": "[object Object]",
+      "reject": null,
+      "disconnectReason": {
+        "ticker": "BSV",
+        "node": "3.228.193.128:8333",
+        "disconnects": 1
+      }
+    },
+    {
+      "node": "35.198.46.157:8333",
+      "advertisedServices": "0000000000000425",
+      "advertisedVersion": 70016,
+      "advertisedBloom": true,
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 457,
+          "value": "connected"
+        },
+        "ping_initial": {
+          "ok": true,
+          "ms": 343,
+          "value": 343
+        },
+        "filterload": {
+          "ok": true,
+          "ms": 900,
+          "value": "accepted"
+        },
+        "ping_after_filterload": {
+          "ok": true,
+          "ms": 152,
+          "value": 152
+        },
+        "filteradd": {
+          "ok": true,
+          "ms": 900,
+          "value": "accepted"
+        },
+        "ping_after_filteradd": {
+          "ok": true,
+          "ms": 152,
+          "value": 152
+        },
+        "filterclear": {
+          "ok": true,
+          "ms": 901,
+          "value": "accepted"
+        },
+        "ping_after_filterclear": {
+          "ok": true,
+          "ms": 152,
+          "value": 152
+        }
+      },
+      "pass": true
+    },
+    {
+      "node": "35.208.47.57:8333",
+      "advertisedServices": "0000000000000425",
+      "advertisedVersion": 70016,
+      "advertisedBloom": true,
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 95,
+          "value": "connected"
+        },
+        "ping_initial": {
+          "ok": true,
+          "ms": 104,
+          "value": 104
+        },
+        "filterload": {
+          "ok": true,
+          "ms": 900,
+          "value": "accepted"
+        },
+        "ping_after_filterload": {
+          "ok": true,
+          "ms": 32,
+          "value": 32
+        },
+        "filteradd": {
+          "ok": true,
+          "ms": 900,
+          "value": "accepted"
+        },
+        "ping_after_filteradd": {
+          "ok": true,
+          "ms": 33,
+          "value": 33
+        },
+        "filterclear": {
+          "ok": true,
+          "ms": 902,
+          "value": "accepted"
+        },
+        "ping_after_filterclear": {
+          "ok": true,
+          "ms": 32,
+          "value": 32
+        }
+      },
+      "pass": true
+    },
+    {
+      "node": "38.242.233.97:8333",
+      "advertisedServices": "0000000001000405",
+      "advertisedVersion": 70016,
+      "advertisedBloom": true,
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 205,
+          "value": "connected"
+        },
+        "ping_initial": {
+          "ok": true,
+          "ms": 204,
+          "value": 204
+        },
+        "filterload": {
+          "ok": true,
+          "ms": 902,
+          "value": "accepted"
+        },
+        "ping_after_filterload": {
+          "ok": true,
+          "ms": 104,
+          "value": 104
+        },
+        "filteradd": {
+          "ok": true,
+          "ms": 904,
+          "value": "accepted"
+        },
+        "ping_after_filteradd": {
+          "ok": true,
+          "ms": 103,
+          "value": 103
+        },
+        "filterclear": {
+          "ok": true,
+          "ms": 901,
+          "value": "accepted"
+        },
+        "ping_after_filterclear": {
+          "ok": true,
+          "ms": 102,
+          "value": 102
+        }
+      },
+      "pass": true
+    },
+    {
+      "node": "40.74.66.219:8333",
+      "advertisedServices": "0000000000000425",
+      "advertisedVersion": 70016,
+      "advertisedBloom": true,
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 496,
+          "value": "connected"
+        },
+        "ping_initial": {
+          "ok": true,
+          "ms": 370,
+          "value": 370
+        },
+        "filterload": {
+          "ok": true,
+          "ms": 908,
+          "value": "accepted"
+        },
+        "ping_after_filterload": {
+          "ok": true,
+          "ms": 167,
+          "value": 167
+        },
+        "filteradd": {
+          "ok": true,
+          "ms": 901,
+          "value": "accepted"
+        },
+        "ping_after_filteradd": {
+          "ok": true,
+          "ms": 165,
+          "value": 165
+        },
+        "filterclear": {
+          "ok": true,
+          "ms": 899,
+          "value": "accepted"
+        },
+        "ping_after_filterclear": {
+          "ok": true,
+          "ms": 165,
+          "value": 165
+        }
+      },
+      "pass": true
+    },
+    {
+      "node": "45.153.245.82:8333",
+      "advertisedServices": "0000000001000405",
+      "advertisedVersion": 70016,
+      "advertisedBloom": true,
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 327,
+          "value": "connected"
+        },
+        "ping_initial": {
+          "ok": true,
+          "ms": 329,
+          "value": 329
+        },
+        "filterload": {
+          "ok": true,
+          "ms": 900,
+          "value": "accepted"
+        },
+        "ping_after_filterload": {
+          "ok": true,
+          "ms": 164,
+          "value": 164
+        },
+        "filteradd": {
+          "ok": true,
+          "ms": 900,
+          "value": "accepted"
+        },
+        "ping_after_filteradd": {
+          "ok": true,
+          "ms": 165,
+          "value": 164
+        },
+        "filterclear": {
+          "ok": true,
+          "ms": 900,
+          "value": "accepted"
+        },
+        "ping_after_filterclear": {
+          "ok": true,
+          "ms": 163,
+          "value": 163
+        }
+      },
+      "pass": true
+    },
+    {
+      "node": "46.250.249.109:8333",
+      "advertisedServices": "0000000001000405",
+      "advertisedVersion": 70016,
+      "advertisedBloom": true,
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 335,
+          "value": "connected"
+        },
+        "ping_initial": {
+          "ok": true,
+          "ms": 332,
+          "value": 332
+        },
+        "filterload": {
+          "ok": true,
+          "ms": 900,
+          "value": "accepted"
+        },
+        "ping_after_filterload": {
+          "ok": true,
+          "ms": 166,
+          "value": 166
+        },
+        "filteradd": {
+          "ok": true,
+          "ms": 900,
+          "value": "accepted"
+        },
+        "ping_after_filteradd": {
+          "ok": true,
+          "ms": 167,
+          "value": 167
+        },
+        "filterclear": {
+          "ok": true,
+          "ms": 901,
+          "value": "accepted"
+        },
+        "ping_after_filterclear": {
+          "ok": true,
+          "ms": 166,
+          "value": 166
+        }
+      },
+      "pass": true
+    },
+    {
+      "node": "47.186.181.232:8333",
+      "advertisedServices": "0000000000000021",
+      "advertisedVersion": 70016,
+      "advertisedBloom": false,
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 117,
+          "value": "connected"
+        },
+        "ping_initial": {
+          "ok": true,
+          "ms": 101,
+          "value": 101
+        },
+        "filterload": {
+          "ok": false,
+          "ms": 902,
+          "error": "[object Object]"
+        }
+      },
+      "pass": false,
+      "error": "[object Object]",
+      "reject": null,
+      "disconnectReason": {
+        "ticker": "BSV",
+        "node": "47.186.181.232:8333",
+        "disconnects": 1
+      }
+    },
+    {
+      "node": "47.243.139.168:8333",
+      "advertisedServices": "0000000000000021",
+      "advertisedVersion": 70016,
+      "advertisedBloom": false,
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 474,
+          "value": "connected"
+        },
+        "ping_initial": {
+          "ok": true,
+          "ms": 473,
+          "value": 473
+        },
+        "filterload": {
+          "ok": false,
+          "ms": 901,
+          "error": "[object Object]"
+        }
+      },
+      "pass": false,
+      "error": "[object Object]",
+      "reject": null,
+      "disconnectReason": {
+        "ticker": "BSV",
+        "node": "47.243.139.168:8333",
+        "disconnects": 1
+      }
+    },
+    {
+      "node": "51.159.104.35:8333",
+      "advertisedServices": "0000000000000425",
+      "advertisedVersion": 70016,
+      "advertisedBloom": true,
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 320,
+          "value": "connected"
+        },
+        "ping_initial": {
+          "ok": true,
+          "ms": 255,
+          "value": 255
+        },
+        "filterload": {
+          "ok": true,
+          "ms": 900,
+          "value": "accepted"
+        },
+        "ping_after_filterload": {
+          "ok": true,
+          "ms": 107,
+          "value": 107
+        },
+        "filteradd": {
+          "ok": true,
+          "ms": 900,
+          "value": "accepted"
+        },
+        "ping_after_filteradd": {
+          "ok": true,
+          "ms": 107,
+          "value": 106
+        },
+        "filterclear": {
+          "ok": true,
+          "ms": 900,
+          "value": "accepted"
+        },
+        "ping_after_filterclear": {
+          "ok": true,
+          "ms": 115,
+          "value": 115
+        }
+      },
+      "pass": true
+    },
+    {
+      "node": "51.222.249.3:8333",
+      "advertisedServices": "0000000000000021",
+      "advertisedVersion": 70016,
+      "advertisedBloom": false,
+      "steps": {
+        "connect": {
+          "ok": false,
+          "ms": 17,
+          "error": "disconnected"
+        }
+      },
+      "pass": false,
+      "error": "disconnected",
+      "reject": null,
+      "disconnectReason": {
+        "ticker": "BSV",
+        "node": "51.222.249.3:8333",
+        "disconnects": 1
+      }
+    },
+    {
+      "node": "51.75.213.175:8333",
+      "advertisedServices": "0000000000000021",
+      "advertisedVersion": 70016,
+      "advertisedBloom": false,
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 205,
+          "value": "connected"
+        },
+        "ping_initial": {
+          "ok": true,
+          "ms": 205,
+          "value": 205
+        },
+        "filterload": {
+          "ok": false,
+          "ms": 902,
+          "error": "[object Object]"
+        }
+      },
+      "pass": false,
+      "error": "[object Object]",
+      "reject": null,
+      "disconnectReason": {
+        "ticker": "BSV",
+        "node": "51.75.213.175:8333",
+        "disconnects": 1
+      }
+    },
+    {
+      "node": "51.89.99.162:8333",
+      "advertisedServices": "0000000000000021",
+      "advertisedVersion": 70016,
+      "advertisedBloom": false,
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 224,
+          "value": "connected"
+        },
+        "ping_initial": {
+          "ok": true,
+          "ms": 212,
+          "value": 212
+        },
+        "filterload": {
+          "ok": false,
+          "ms": 902,
+          "error": "[object Object]"
+        }
+      },
+      "pass": false,
+      "error": "[object Object]",
+      "reject": null,
+      "disconnectReason": {
+        "ticker": "BSV",
+        "node": "51.89.99.162:8333",
+        "disconnects": 1
+      }
+    },
+    {
+      "node": "54.39.107.18:8333",
+      "advertisedServices": "0000000000000425",
+      "advertisedVersion": 70016,
+      "advertisedBloom": true,
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 48,
+          "value": "connected"
+        },
+        "ping_initial": {
+          "ok": true,
+          "ms": 87,
+          "value": 87
+        },
+        "filterload": {
+          "ok": true,
+          "ms": 900,
+          "value": "accepted"
+        },
+        "ping_after_filterload": {
+          "ok": true,
+          "ms": 17,
+          "value": 17
+        },
+        "filteradd": {
+          "ok": true,
+          "ms": 901,
+          "value": "accepted"
+        },
+        "ping_after_filteradd": {
+          "ok": true,
+          "ms": 16,
+          "value": 16
+        },
+        "filterclear": {
+          "ok": true,
+          "ms": 899,
+          "value": "accepted"
+        },
+        "ping_after_filterclear": {
+          "ok": true,
+          "ms": 16,
+          "value": 16
+        }
+      },
+      "pass": true
+    },
+    {
+      "node": "57.128.216.248:8333",
+      "advertisedServices": "0000000000000021",
+      "advertisedVersion": 70016,
+      "advertisedBloom": false,
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 277,
+          "value": "connected"
+        },
+        "ping_initial": {
+          "ok": true,
+          "ms": 276,
+          "value": 276
+        },
+        "filterload": {
+          "ok": false,
+          "ms": 901,
+          "error": "[object Object]"
+        }
+      },
+      "pass": false,
+      "error": "[object Object]",
+      "reject": null,
+      "disconnectReason": {
+        "ticker": "BSV",
+        "node": "57.128.216.248:8333",
+        "disconnects": 1
+      }
+    },
+    {
+      "node": "62.72.42.201:8333",
+      "advertisedServices": "0000000001000405",
+      "advertisedVersion": 70016,
+      "advertisedBloom": true,
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 553,
+          "value": "connected"
+        },
+        "ping_initial": {
+          "ok": true,
+          "ms": 552,
+          "value": 552
+        },
+        "filterload": {
+          "ok": true,
+          "ms": 900,
+          "value": "accepted"
+        },
+        "ping_after_filterload": {
+          "ok": true,
+          "ms": 299,
+          "value": 299
+        },
+        "filteradd": {
+          "ok": true,
+          "ms": 902,
+          "value": "accepted"
+        },
+        "ping_after_filteradd": {
+          "ok": true,
+          "ms": 281,
+          "value": 281
+        },
+        "filterclear": {
+          "ok": true,
+          "ms": 902,
+          "value": "accepted"
+        },
+        "ping_after_filterclear": {
+          "ok": true,
+          "ms": 277,
+          "value": 277
+        }
+      },
+      "pass": true
+    },
+    {
+      "node": "65.108.102.125:8333",
+      "advertisedServices": "0000000000000021",
+      "advertisedVersion": 70016,
+      "advertisedBloom": false,
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 299,
+          "value": "connected"
+        },
+        "ping_initial": {
+          "ok": true,
+          "ms": 288,
+          "value": 288
+        },
+        "filterload": {
+          "ok": false,
+          "ms": 905,
+          "error": "[object Object]"
+        }
+      },
+      "pass": false,
+      "error": "[object Object]",
+      "reject": null,
+      "disconnectReason": {
+        "ticker": "BSV",
+        "node": "65.108.102.125:8333",
+        "disconnects": 1
+      }
+    },
+    {
+      "node": "65.109.56.244:8333",
+      "advertisedServices": "0000000000000021",
+      "advertisedVersion": 70016,
+      "advertisedBloom": false,
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 276,
+          "value": "connected"
+        },
+        "ping_initial": {
+          "ok": false,
+          "ms": 3,
+          "error": "disconnected"
+        }
+      },
+      "pass": false,
+      "error": "disconnected",
+      "reject": null,
+      "disconnectReason": {
+        "ticker": "BSV",
+        "node": "65.109.56.244:8333",
+        "disconnects": 1
+      }
+    },
+    {
+      "node": "77.51.197.165:8333",
+      "advertisedServices": "0000000000000425",
+      "advertisedVersion": 70016,
+      "advertisedBloom": true,
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 397,
+          "value": "connected"
+        },
+        "ping_initial": {
+          "ok": true,
+          "ms": 131,
+          "value": 131
+        },
+        "filterload": {
+          "ok": true,
+          "ms": 906,
+          "value": "accepted"
+        },
+        "ping_after_filterload": {
+          "ok": true,
+          "ms": 175,
+          "value": 175
+        },
+        "filteradd": {
+          "ok": true,
+          "ms": 900,
+          "value": "accepted"
+        },
+        "ping_after_filteradd": {
+          "ok": true,
+          "ms": 133,
+          "value": 132
+        },
+        "filterclear": {
+          "ok": true,
+          "ms": 901,
+          "value": "accepted"
+        },
+        "ping_after_filterclear": {
+          "ok": true,
+          "ms": 153,
+          "value": 153
+        }
+      },
+      "pass": true
+    },
+    {
+      "node": "78.110.160.26:8333",
+      "advertisedServices": "0000000000000021",
+      "advertisedVersion": 70016,
+      "advertisedBloom": false,
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 227,
+          "value": "connected"
+        },
+        "ping_initial": {
+          "ok": false,
+          "ms": 2,
+          "error": "disconnected"
+        }
+      },
+      "pass": false,
+      "error": "disconnected",
+      "reject": null,
+      "disconnectReason": {
+        "ticker": "BSV",
+        "node": "78.110.160.26:8333",
+        "disconnects": 1
+      }
+    },
+    {
+      "node": "78.46.240.210:8333",
+      "advertisedServices": "0000000000000425",
+      "advertisedVersion": 70016,
+      "advertisedBloom": true,
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 395,
+          "value": "connected"
+        },
+        "ping_initial": {
+          "ok": true,
+          "ms": 261,
+          "value": 261
+        },
+        "filterload": {
+          "ok": true,
+          "ms": 902,
+          "value": "accepted"
+        },
+        "ping_after_filterload": {
+          "ok": true,
+          "ms": 132,
+          "value": 132
+        },
+        "filteradd": {
+          "ok": true,
+          "ms": 900,
+          "value": "accepted"
+        },
+        "ping_after_filteradd": {
+          "ok": true,
+          "ms": 130,
+          "value": 130
+        },
+        "filterclear": {
+          "ok": true,
+          "ms": 910,
+          "value": "accepted"
+        },
+        "ping_after_filterclear": {
+          "ok": true,
+          "ms": 131,
+          "value": 131
+        }
+      },
+      "pass": true
+    },
+    {
+      "node": "95.123.7.97:8333",
+      "advertisedServices": "0000000001000405",
+      "advertisedVersion": 70016,
+      "advertisedBloom": true,
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 318,
+          "value": "connected"
+        },
+        "ping_initial": {
+          "ok": true,
+          "ms": 296,
+          "value": 296
+        },
+        "filterload": {
+          "ok": true,
+          "ms": 902,
+          "value": "accepted"
+        },
+        "ping_after_filterload": {
+          "ok": true,
+          "ms": 146,
+          "value": 146
+        },
+        "filteradd": {
+          "ok": true,
+          "ms": 900,
+          "value": "accepted"
+        },
+        "ping_after_filteradd": {
+          "ok": true,
+          "ms": 246,
+          "value": 246
+        },
+        "filterclear": {
+          "ok": true,
+          "ms": 910,
+          "value": "accepted"
+        },
+        "ping_after_filterclear": {
+          "ok": true,
+          "ms": 146,
+          "value": 146
+        }
+      },
+      "pass": true
+    },
+    {
+      "node": "95.179.139.47:8333",
+      "advertisedServices": "0000000000000425",
+      "advertisedVersion": 70016,
+      "advertisedBloom": true,
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 285,
+          "value": "connected"
+        },
+        "ping_initial": {
+          "ok": true,
+          "ms": 230,
+          "value": 230
+        },
+        "filterload": {
+          "ok": true,
+          "ms": 914,
+          "value": "accepted"
+        },
+        "ping_after_filterload": {
+          "ok": true,
+          "ms": 95,
+          "value": 95
+        },
+        "filteradd": {
+          "ok": true,
+          "ms": 904,
+          "value": "accepted"
+        },
+        "ping_after_filteradd": {
+          "ok": true,
+          "ms": 94,
+          "value": 94
+        },
+        "filterclear": {
+          "ok": true,
+          "ms": 901,
+          "value": "accepted"
+        },
+        "ping_after_filterclear": {
+          "ok": true,
+          "ms": 95,
+          "value": 95
+        }
+      },
+      "pass": true
+    },
+    {
+      "node": "99.127.49.102:8333",
+      "advertisedServices": "0000000000000021",
+      "advertisedVersion": 70016,
+      "advertisedBloom": false,
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 100,
+          "value": "connected"
+        },
+        "ping_initial": {
+          "ok": true,
+          "ms": 98,
+          "value": 98
+        },
+        "filterload": {
+          "ok": false,
+          "ms": 900,
+          "error": "[object Object]"
+        }
+      },
+      "pass": false,
+      "error": "[object Object]",
+      "reject": null,
+      "disconnectReason": {
+        "ticker": "BSV",
+        "node": "99.127.49.102:8333",
+        "disconnects": 1
+      }
+    }
+  ]
+}

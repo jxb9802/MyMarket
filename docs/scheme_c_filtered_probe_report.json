@@ -1,0 +1,503 @@
+{
+  "summary": {
+    "startedAt": "2026-03-13T23:09:12.470Z",
+    "testedPeers": 15,
+    "tipHeight": 944222,
+    "connectPassed": 14,
+    "filterloadPassed": 13,
+    "getheadersPassed": 12,
+    "filteredBlockPassed": 7,
+    "fullPass": 7
+  },
+  "results": [
+    {
+      "node": "100.11.85.230:8333",
+      "tipHeight": 944222,
+      "tipHash": "000000000cd1bd9d252e0012347f31755f4ed2ddf6bb3a877c216c5474058432",
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 147,
+          "value": "connected"
+        },
+        "ping": {
+          "ok": true,
+          "ms": 208,
+          "value": 208
+        },
+        "filterload": {
+          "ok": true,
+          "ms": 603,
+          "value": "accepted"
+        },
+        "getheaders": {
+          "ok": true,
+          "ms": 331,
+          "value": 2000
+        },
+        "filtered_block": {
+          "ok": true,
+          "ms": 41,
+          "value": {
+            "command": "merkleblock",
+            "payloadBytes": 119
+          }
+        }
+      },
+      "pass": true
+    },
+    {
+      "node": "100.49.247.84:8333",
+      "tipHeight": 944222,
+      "tipHash": "000000000cd1bd9d252e0012347f31755f4ed2ddf6bb3a877c216c5474058432",
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 93,
+          "value": "connected"
+        },
+        "ping": {
+          "ok": true,
+          "ms": 97,
+          "value": 97
+        },
+        "filterload": {
+          "ok": true,
+          "ms": 602,
+          "value": "accepted"
+        },
+        "getheaders": {
+          "ok": true,
+          "ms": 362,
+          "value": 2000
+        },
+        "filtered_block": {
+          "ok": true,
+          "ms": 32,
+          "value": {
+            "command": "merkleblock",
+            "payloadBytes": 119
+          }
+        }
+      },
+      "pass": true
+    },
+    {
+      "node": "100.7.12.142:8333",
+      "tipHeight": 944222,
+      "tipHash": "000000000cd1bd9d252e0012347f31755f4ed2ddf6bb3a877c216c5474058432",
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 135,
+          "value": "connected"
+        },
+        "ping": {
+          "ok": true,
+          "ms": 135,
+          "value": 134
+        },
+        "filterload": {
+          "ok": true,
+          "ms": 600,
+          "value": "accepted"
+        },
+        "getheaders": {
+          "ok": true,
+          "ms": 310,
+          "value": 2000
+        },
+        "filtered_block": {
+          "ok": true,
+          "ms": 47,
+          "value": {
+            "command": "merkleblock",
+            "payloadBytes": 119
+          }
+        }
+      },
+      "pass": true
+    },
+    {
+      "node": "103.156.118.194:8333",
+      "tipHeight": 944222,
+      "tipHash": "000000000cd1bd9d252e0012347f31755f4ed2ddf6bb3a877c216c5474058432",
+      "steps": {
+        "connect": {
+          "ok": false,
+          "ms": 3501,
+          "error": "connect_timeout"
+        }
+      },
+      "pass": false,
+      "error": "connect_timeout"
+    },
+    {
+      "node": "104.248.81.232:8333",
+      "tipHeight": 944222,
+      "tipHash": "000000000cd1bd9d252e0012347f31755f4ed2ddf6bb3a877c216c5474058432",
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 283,
+          "value": "connected"
+        },
+        "ping": {
+          "ok": true,
+          "ms": 187,
+          "value": 187
+        },
+        "filterload": {
+          "ok": true,
+          "ms": 600,
+          "value": "accepted"
+        },
+        "getheaders": {
+          "ok": false,
+          "ms": 936,
+          "error": "disconnected"
+        }
+      },
+      "pass": false,
+      "error": "disconnected"
+    },
+    {
+      "node": "107.136.51.230:8333",
+      "tipHeight": 944222,
+      "tipHash": "000000000cd1bd9d252e0012347f31755f4ed2ddf6bb3a877c216c5474058432",
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 136,
+          "value": "connected"
+        },
+        "ping": {
+          "ok": true,
+          "ms": 127,
+          "value": 127
+        },
+        "filterload": {
+          "ok": true,
+          "ms": 601,
+          "value": "accepted"
+        },
+        "getheaders": {
+          "ok": true,
+          "ms": 190,
+          "value": 2000
+        },
+        "filtered_block": {
+          "ok": true,
+          "ms": 55,
+          "value": {
+            "command": "merkleblock",
+            "payloadBytes": 119
+          }
+        }
+      },
+      "pass": true
+    },
+    {
+      "node": "107.210.90.217:8333",
+      "tipHeight": 944222,
+      "tipHash": "000000000cd1bd9d252e0012347f31755f4ed2ddf6bb3a877c216c5474058432",
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 164,
+          "value": "connected"
+        },
+        "ping": {
+          "ok": true,
+          "ms": 148,
+          "value": 148
+        },
+        "filterload": {
+          "ok": true,
+          "ms": 600,
+          "value": "accepted"
+        },
+        "getheaders": {
+          "ok": true,
+          "ms": 224,
+          "value": 2000
+        },
+        "filtered_block": {
+          "ok": true,
+          "ms": 53,
+          "value": {
+            "command": "merkleblock",
+            "payloadBytes": 119
+          }
+        }
+      },
+      "pass": true
+    },
+    {
+      "node": "115.187.38.11:8333",
+      "tipHeight": 944222,
+      "tipHash": "000000000cd1bd9d252e0012347f31755f4ed2ddf6bb3a877c216c5474058432",
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 946,
+          "value": "connected"
+        },
+        "ping": {
+          "ok": true,
+          "ms": 669,
+          "value": 669
+        },
+        "filterload": {
+          "ok": true,
+          "ms": 600,
+          "value": "accepted"
+        },
+        "getheaders": {
+          "ok": true,
+          "ms": 1254,
+          "value": 2000
+        },
+        "filtered_block": {
+          "ok": true,
+          "ms": 319,
+          "value": {
+            "command": "merkleblock",
+            "payloadBytes": 119
+          }
+        }
+      },
+      "pass": true
+    },
+    {
+      "node": "124.122.134.114:8333",
+      "tipHeight": 944222,
+      "tipHash": "000000000cd1bd9d252e0012347f31755f4ed2ddf6bb3a877c216c5474058432",
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 838,
+          "value": "connected"
+        },
+        "ping": {
+          "ok": true,
+          "ms": 600,
+          "value": 600
+        },
+        "filterload": {
+          "ok": true,
+          "ms": 600,
+          "value": "accepted"
+        },
+        "getheaders": {
+          "ok": true,
+          "ms": 1122,
+          "value": 2000
+        },
+        "filtered_block": {
+          "ok": false,
+          "ms": 3501,
+          "error": "filtered_block_timeout"
+        }
+      },
+      "pass": false,
+      "error": "filtered_block_timeout"
+    },
+    {
+      "node": "13.52.142.190:8333",
+      "tipHeight": 944222,
+      "tipHash": "000000000cd1bd9d252e0012347f31755f4ed2ddf6bb3a877c216c5474058432",
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 243,
+          "value": "connected"
+        },
+        "ping": {
+          "ok": true,
+          "ms": 200,
+          "value": 200
+        },
+        "filterload": {
+          "ok": true,
+          "ms": 600,
+          "value": "accepted"
+        },
+        "getheaders": {
+          "ok": true,
+          "ms": 333,
+          "value": 2000
+        },
+        "filtered_block": {
+          "ok": false,
+          "ms": 3501,
+          "error": "filtered_block_timeout"
+        }
+      },
+      "pass": false,
+      "error": "filtered_block_timeout"
+    },
+    {
+      "node": "135.148.136.25:8333",
+      "tipHeight": 944222,
+      "tipHash": "000000000cd1bd9d252e0012347f31755f4ed2ddf6bb3a877c216c5474058432",
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 77,
+          "value": "connected"
+        },
+        "ping": {
+          "ok": true,
+          "ms": 91,
+          "value": 91
+        },
+        "filterload": {
+          "ok": true,
+          "ms": 612,
+          "value": "accepted"
+        },
+        "getheaders": {
+          "ok": true,
+          "ms": 110,
+          "value": 2000
+        },
+        "filtered_block": {
+          "ok": true,
+          "ms": 25,
+          "value": {
+            "command": "merkleblock",
+            "payloadBytes": 119
+          }
+        }
+      },
+      "pass": true
+    },
+    {
+      "node": "136.144.241.205:8333",
+      "tipHeight": 944222,
+      "tipHash": "000000000cd1bd9d252e0012347f31755f4ed2ddf6bb3a877c216c5474058432",
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 330,
+          "value": "connected"
+        },
+        "ping": {
+          "ok": true,
+          "ms": 116,
+          "value": 116
+        },
+        "filterload": {
+          "ok": false,
+          "ms": 600,
+          "error": "disconnected_after_filterload"
+        }
+      },
+      "pass": false,
+      "error": "disconnected_after_filterload"
+    },
+    {
+      "node": "144.91.125.100:8333",
+      "tipHeight": 944222,
+      "tipHash": "000000000cd1bd9d252e0012347f31755f4ed2ddf6bb3a877c216c5474058432",
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 247,
+          "value": "connected"
+        },
+        "ping": {
+          "ok": true,
+          "ms": 246,
+          "value": 246
+        },
+        "filterload": {
+          "ok": true,
+          "ms": 600,
+          "value": "accepted"
+        },
+        "getheaders": {
+          "ok": true,
+          "ms": 487,
+          "value": 2000
+        },
+        "filtered_block": {
+          "ok": false,
+          "ms": 3500,
+          "error": "filtered_block_timeout"
+        }
+      },
+      "pass": false,
+      "error": "filtered_block_timeout"
+    },
+    {
+      "node": "144.91.97.194:8333",
+      "tipHeight": 944222,
+      "tipHash": "000000000cd1bd9d252e0012347f31755f4ed2ddf6bb3a877c216c5474058432",
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 229,
+          "value": "connected"
+        },
+        "ping": {
+          "ok": true,
+          "ms": 227,
+          "value": 227
+        },
+        "filterload": {
+          "ok": true,
+          "ms": 608,
+          "value": "accepted"
+        },
+        "getheaders": {
+          "ok": true,
+          "ms": 460,
+          "value": 2000
+        },
+        "filtered_block": {
+          "ok": false,
+          "ms": 3501,
+          "error": "filtered_block_timeout"
+        }
+      },
+      "pass": false,
+      "error": "filtered_block_timeout"
+    },
+    {
+      "node": "148.113.16.157:8333",
+      "tipHeight": 944222,
+      "tipHash": "000000000cd1bd9d252e0012347f31755f4ed2ddf6bb3a877c216c5474058432",
+      "steps": {
+        "connect": {
+          "ok": true,
+          "ms": 528,
+          "value": "connected"
+        },
+        "ping": {
+          "ok": true,
+          "ms": 530,
+          "value": 530
+        },
+        "filterload": {
+          "ok": true,
+          "ms": 600,
+          "value": "accepted"
+        },
+        "getheaders": {
+          "ok": true,
+          "ms": 1066,
+          "value": 2000
+        },
+        "filtered_block": {
+          "ok": false,
+          "ms": 3502,
+          "error": "filtered_block_timeout"
+        }
+      },
+      "pass": false,
+      "error": "filtered_block_timeout"
+    }
+  ]
+}

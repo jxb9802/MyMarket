@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BSV Market 功能页图 V2</title>
+    <style>
+      :root {
+        --bg: #f4efe4;
+        --ink: #1d1914;
+        --card: #fffdf8;
+        --line: #d7cab2;
+        --accent: #cb4f2a;
+        --green: #1a7a55;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+        color: var(--ink);
+        background: radial-gradient(circle at 20% 10%, #fff9ef, var(--bg) 60%);
+      }
+      .wrap { max-width: 1280px; margin: 0 auto; padding: 18px; }
+      .top {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 12px;
+      }
+      .title h1 { margin: 0; font-size: 30px; }
+      .title p { margin: 5px 0 0; color: #655d51; }
+      .wallet-bar {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .chip {
+        background: #fff;
+        border: 2px solid var(--ink);
+        border-radius: 999px;
+        padding: 6px 12px;
+        font-weight: 600;
+      }
+      .chip.profile { background: #ffe7c6; cursor: pointer; }
+
+      .tabs {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 10px;
+      }
+      .tab {
+        border: 2px solid var(--ink);
+        background: #fff;
+        padding: 8px 14px;
+        border-radius: 10px 10px 0 0;
+        cursor: pointer;
+        font-weight: 700;
+      }
+      .tab.active { background: #fff0db; color: var(--accent); }
+
+      .panel {
+        border: 2px solid var(--ink);
+        background: var(--card);
+        border-radius: 0 10px 10px 10px;
+        padding: 14px;
+        box-shadow: 5px 5px 0 rgba(0,0,0,.08);
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: 1.1fr 1fr;
+        gap: 12px;
+        margin-top: 10px;
+      }
+      .card {
+        border: 2px solid var(--line);
+        border-radius: 10px;
+        padding: 12px;
+        background: #fff;
+      }
+      .card h3 { margin: 0 0 8px; color: var(--accent); }
+      ul { margin: 0; padding-left: 18px; }
+      li { margin: 5px 0; }
+
+      .flow {
+        margin-top: 12px;
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 8px;
+      }
+      .step {
+        border: 2px dashed #9f937f;
+        border-radius: 8px;
+        background: #fffdf8;
+        padding: 10px;
+        min-height: 88px;
+      }
+      .step strong { color: var(--accent); display:block; margin-bottom: 5px; }
+
+      .ok { color: var(--green); font-weight: 700; }
+      .note {
+        margin-top: 12px;
+        border: 2px solid #b28f56;
+        background: #fff4dc;
+        border-radius: 10px;
+        padding: 12px;
+      }
+
+      .hidden { display: none; }
+
+      @media (max-width: 1100px) {
+        .grid { grid-template-columns: 1fr; }
+        .flow { grid-template-columns: 1fr; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header class="top">
+        <div class="title">
+          <h1>BSV Market 1.0 页面与功能图（V2）</h1>
+          <p>登录后：顶部显示余额，买家/卖家标签卡切换，个人信息独立入口</p>
+        </div>
+        <div class="wallet-bar">
+          <div class="chip">钱包余额: 1.248 BSV</div>
+          <div class="chip">同步高度: 进行中</div>
+          <div class="chip profile">个人信息</div>
+        </div>
+      </header>
+
+      <div class="tabs">
+        <button class="tab active" data-target="buyer">买家页</button>
+        <button class="tab" data-target="seller">卖家页</button>
+      </div>
+
+      <section class="panel" id="buyer">
+        <div class="grid">
+          <article class="card">
+            <h3>买家主界面</h3>
+            <ul>
+              <li>商品搜索框：关键词/分类/价格区间</li>
+              <li>已同步卖家列表：展示卖家名、区域、上次更新时间</li>
+              <li>点卖家后直接显示该卖家商品列表</li>
+              <li>商品详情可下单：锁定 商品价 + 20% 确认金</li>
+            </ul>
+          </article>
+          <article class="card">
+            <h3>买家订单与沟通</h3>
+            <ul>
+              <li>订单列表：按状态筛选（待发货/已发货/退货中/已完成/争议）</li>
+              <li>订单操作：确认收货、申请退货、发货前取消</li>
+              <li>聊天A：用户会话聊天（类似微信，一人一会话）</li>
+              <li>聊天B：订单聊天（按订单ID进入，边看订单边沟通）</li>
+            </ul>
+          </article>
+        </div>
+      </section>
+
+      <section class="panel hidden" id="seller">
+        <div class="grid">
+          <article class="card">
+            <h3>卖家主界面</h3>
+            <ul>
+              <li>分类管理 + 商品列表（按分类展示）</li>
+              <li>商品编辑：修改标题、描述、价格、库存、图片</li>
+              <li>修改后写入新版本（version递增），以最新版本为准</li>
+              <li>支持商品上架/下架与历史版本追溯</li>
+            </ul>
+          </article>
+          <article class="card">
+            <h3>卖家订单管理</h3>
+            <ul>
+              <li>订单列表展示全部订单</li>
+              <li>按状态过滤：待处理/待发货/已发货/退货中/争议/已完成</li>
+              <li>发货动作：锁定 10% 退货保证金</li>
+              <li>退货确认：确认后执行退款路径</li>
+            </ul>
+          </article>
+        </div>
+      </section>
+
+      <section class="panel" style="margin-top:12px; border-radius:10px;">
+        <h3 style="margin:0 0 8px; color:var(--accent);">商品多次修改与下单一致性规则（关键）</h3>
+        <div class="flow">
+          <div class="step"><strong>1. 商品版本化</strong>每次修改产生新 `product_version`</div>
+          <div class="step"><strong>2. 下单快照</strong>订单写入 `product_id + product_version + price_snapshot`</div>
+          <div class="step"><strong>3. 卖家确认</strong>卖家接单时校验版本，版本不一致可拒单并返回最新报价</div>
+          <div class="step"><strong>4. 资金保护</strong>版本冲突时只允许取消/重下单，不允许按旧价强行结算</div>
+        </div>
+
+        <div class="note">
+          <div class="ok">处理结论：即使最新商品广播未全网到达，也不会造成错误成交价。</div>
+          <ul>
+            <li>买家下单永远绑定当时看到的版本快照。</li>
+            <li>卖家只能在“版本一致”时进入发货流程。</li>
+            <li>版本不一致自动进入“待重报价/待买家确认”状态。</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="panel" style="margin-top:12px; border-radius:10px;">
+        <h3 style="margin:0 0 8px; color:var(--accent);">系统后台（Background Steward）</h3>
+        <ul>
+          <li>持续监听区域索引池并同步最新商品、订单、聊天密文</li>
+          <li>多节点交叉验证，单节点异常自动切换</li>
+          <li>按 `last_scanned_height` 回放补扫，修复实时监听遗漏</li>
+          <li>本地 SQLite 入库后推送前端实时更新</li>
+        </ul>
+      </section>
+    </div>
+
+    <script>
+      const tabs = document.querySelectorAll('.tab');
+      const buyer = document.getElementById('buyer');
+      const seller = document.getElementById('seller');
+      tabs.forEach((btn) => {
+        btn.addEventListener('click', () => {
+          tabs.forEach((x) => x.classList.remove('active'));
+          btn.classList.add('active');
+          const target = btn.dataset.target;
+          if (target === 'buyer') {
+            buyer.classList.remove('hidden');
+            seller.classList.add('hidden');
+          } else {
+            seller.classList.remove('hidden');
+            buyer.classList.add('hidden');
+          }
+        });
+      });
+    </script>
+  </body>
+</html>

@@ -1,0 +1,64 @@
+# Runtime data, wallets, and local state
+.env
+.env.*
+!.env.example
+.env.market
+data/
+log/
+D:WSLdb/
+memory/
+baselines/
+
+# Databases, wallet material, and generated caches
+*.db
+*.sqlite
+*.sqlite3
+*.db-shm
+*.db-wal
+*.sqlite-shm
+*.sqlite-wal
+keystore.json
+wallet_state.json
+spv_index.json
+balance_cache.json
+state.json
+state.json.bak
+cache.json
+public_state_cache.json
+command_queue.json
+job_state.json
+runtime_version.json
+spv_nodes_state.json
+p2p_sync_receipts.json*
+rawtx/
+chat_attachments/
+
+# Dependencies and build outputs
+node_modules/
+dist/
+*.zip
+*.zip.sha256
+
+# Logs and diagnostics
+*.log
+*.ndjson
+*.pid
+*.tmp
+*.bak
+*.bak.*
+*.backup
+perf.data
+diagnostics/
+
+# Local/editor/system noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+.deploy/
+deploy_agent_v2/.runtime/
+deploy_agent_v2/.agent_node/
+
+# Local transient files
+.tmp_*
+tmp_*

@@ -1,0 +1,33 @@
+{
+  "name": "bsv-market",
+  "version": "1.0.0",
+  "private": true,
+  "description": "BSV market prototype with wallet and on-chain anchor APIs",
+  "main": "server_market.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server_market.js",
+    "bhs:start": "node block_headers_service.js",
+    "test": "node --test",
+    "p2p:device": "node tools/p2p_probe_device.js",
+    "bench:forward-probe": "node scripts/benchmark_forward_probe.js",
+    "bench:headers-fetch": "node scripts/benchmark_headers_fetch.js",
+    "scan:spv": "node scripts/scan_spv_nodes.js"
+  },
+  "dependencies": {
+    "@bsv/sdk": "2.0.12",
+    "axios": "1.13.5",
+    "bsv": "0.30.2",
+    "bsv-mnemonic": "1.7.6",
+    "bsv-p2p": "0.3.2",
+    "express": "5.2.1",
+    "express-session": "1.19.0",
+    "qrcode": "1.5.4",
+    "werift": "0.22.9",
+    "ws": "8.18.3"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "eslint": "10.0.2"
+  }
+}
