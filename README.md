@@ -34,11 +34,11 @@ This platform uses a **deposit-based escrow system** with **no central arbitrati
 #### Transaction Flow
 
 1. **Buyer creates an order** → Product amount + **20% security deposit** is locked.
-2. **Seller confirms the order** → Seller locks **10% security deposit**.
+2. **Seller confirms the order** → Seller locks **5% security deposit**.
 3. **Seller ships the goods** and submits delivery confirmation.
 4. **Buyer confirms receipt** → Transaction completes:
    - 20% deposit refunded to buyer
-   - 10% deposit refunded to seller
+   - 5% deposit refunded to seller
    - Product amount transferred to seller
 
 #### Return / Dispute Process
@@ -46,13 +46,13 @@ This platform uses a **deposit-based escrow system** with **no central arbitrati
 - If the buyer requests a return, the case is forwarded to the seller.
 - If the seller **accepts** the return:
   - Product amount + 20% deposit refunded to buyer
-  - 10% deposit refunded to seller
+  - 5% deposit refunded to seller
   - Buyer must return the goods
 - If the seller **rejects** the return:
   - Both parties must resolve the dispute privately.
   - All locked funds remain **permanently locked** on-chain:
     - Buyer’s 20% deposit + product amount
-    - Seller’s 10% deposit
+    - Seller’s 5% deposit
 
 ---
 
