@@ -16,6 +16,7 @@ function defaultChatConfig() {
     manualDisconnects: {},
     allowOnchainInvite: true,
     autoPublishEndpoint: true,
+    publicNodeAuto: true,
   };
 }
 

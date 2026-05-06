@@ -374,6 +374,16 @@ function registerChatRoutes(app, deps = {}) {
     return proxyChatWorker(res, 'get_thread', [walletId, req.query || {}], { timeoutMs: 25000 });
   });
 
+  app.get('/api/chat/wallet-id-for-pubkey', walletAuthRequired, async (req, res) => {
+    const pubKey = String(req.query?.pubKey || req.query?.chatPubKey || '').trim();
+    if (!pubKey) return fail(res, 'pubKey is required');
+    const state = buildChatReadState(req, { includeLocalState: false });
+    const walletId = typeof getWalletIdForChatPubKey === 'function'
+      ? String(getWalletIdForChatPubKey(state, pubKey) || '').trim()
+      : '';
+    return res.json({ success: true, walletId });
+  });
+
   app.get('/api/chat/self-state', walletAuthRequired, async (req, res) => {
     const state = buildChatReadState(req, { includeLocalState: false });
     const selfState = await getChatSelfStateSnapshot(state, req);

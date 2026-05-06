@@ -27,7 +27,7 @@ test('v3 happy path NEW -> PLACED -> LOCKED -> SHIPPED -> COMPLETED', () => {
 
   order = applyTransition(order, 'accept', { transitionId: 'a1' });
   assert.equal(order.status, ORDER_STATUS.LOCKED);
-  assert.equal(order.funds.sellerLockedSats, 10000);
+  assert.equal(order.funds.sellerLockedSats, 5000);
 
   order = applyTransition(order, 'ship', { transitionId: 's1' });
   assert.equal(order.status, ORDER_STATUS.SHIPPED);
@@ -37,7 +37,7 @@ test('v3 happy path NEW -> PLACED -> LOCKED -> SHIPPED -> COMPLETED', () => {
   assert.deepEqual(order.funds.settlement, {
     sellerCreditSats: 100000,
     buyerRefundSats: 20000,
-    sellerRefundSats: 10000,
+    sellerRefundSats: 5000,
     mode: 'COMPLETED',
   });
 });
@@ -54,7 +54,7 @@ test('v3 refund path uses exact buyer and seller refund amounts', () => {
   assert.equal(order.status, ORDER_STATUS.REFUNDED);
   assert.deepEqual(order.funds.settlement, {
     buyerRefundSats: 60000,
-    sellerRefundSats: 5000,
+    sellerRefundSats: 2500,
     sellerCreditSats: 0,
     mode: 'REFUNDED',
   });
@@ -95,7 +95,7 @@ test('illegal jumps and duplicate transitions are rejected', () => {
   });
 });
 
-test('v3 escrow math uses 20 percent buyer deposit and 10 percent seller deposit', () => {
+test('v3 escrow math uses 20 percent buyer deposit and configurable seller deposit', () => {
   assert.deepEqual(deriveEscrowNumbers(12345, 2000, 1000), {
     priceSats: 12345,
     buyerDepositSats: 2469,
@@ -104,4 +104,5 @@ test('v3 escrow math uses 20 percent buyer deposit and 10 percent seller deposit
     sellerLockTotalSats: 1234,
   });
   assert.equal(deriveEscrowNumbers(1000, 2000, 1000).sellerDepositSats, 1000);
+  assert.equal(deriveEscrowNumbers(1000, 2000, 1000).sellerLockTotalSats, 1000);
 });

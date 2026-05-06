@@ -72,6 +72,17 @@ function createChatTransportV2Service(deps = {}) {
     return normalizeString(serverMarket.getPreferredPeerEndpoint(state, walletId)).replace(/\/+$/, '');
   }
 
+  function getIceServers() {
+    try {
+      const rows = typeof serverMarket.getPublicNodeIceServers === 'function'
+        ? serverMarket.getPublicNodeIceServers()
+        : [];
+      return Array.isArray(rows) ? rows.filter(Boolean) : [];
+    } catch (_) {
+      return [];
+    }
+  }
+
   function rememberSignalPeerIdentity(walletId, chatPubKey, source = 'webrtc_signal') {
     const safeWalletId = normalizeString(walletId);
     const safePubKey = normalizeString(chatPubKey);
@@ -472,7 +483,10 @@ function createChatTransportV2Service(deps = {}) {
     if (!selfEndpoint) throw new Error('local signal endpoint unavailable');
     const sessionId = `chatv2-${safeWalletId}-${crypto.randomUUID()}`;
     upsertSession(safeWalletId, sessionId, 'signaling', { iceState: 'signaling', channelState: 'opening' });
-    const handle = transport.createOfferPeer({ handlers: channelHandlers(sessionId, safeWalletId) });
+    const handle = transport.createOfferPeer({
+      iceServers: getIceServers(),
+      handlers: channelHandlers(sessionId, safeWalletId),
+    });
     bindHandle(sessionId, safeWalletId, handle);
     const offer = await handle.createOffer(Number(process.env.BSV_MARKET_WEBRTC_SIGNAL_TIMEOUT_MS || 5000));
     await signalService.emitSignal({
@@ -528,7 +542,10 @@ function createChatTransportV2Service(deps = {}) {
       }).catch(() => {});
       return { rejected: true };
     }
-    const handle = transport.createAnswerPeer({ handlers: channelHandlers(envelope.sessionId, envelope.fromWalletId) });
+    const handle = transport.createAnswerPeer({
+      iceServers: getIceServers(),
+      handlers: channelHandlers(envelope.sessionId, envelope.fromWalletId),
+    });
     bindHandle(envelope.sessionId, envelope.fromWalletId, handle);
     upsertSession(envelope.fromWalletId, envelope.sessionId, 'checking', { iceState: 'checking', channelState: 'opening' });
     const answer = await handle.acceptOffer(envelope.payload?.description, Number(process.env.BSV_MARKET_WEBRTC_SIGNAL_TIMEOUT_MS || 5000));

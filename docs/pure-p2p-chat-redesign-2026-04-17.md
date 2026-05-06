@@ -256,15 +256,45 @@ Heartbeats must not emit state changes unless timeout is crossed.
 
 ## Relay Policy
 
-True P2P does not mean "never use relay".
+True P2P for this system does not require public nodes to forward chat data.
 
 Correct policy:
 
 - first try direct ICE candidate pair
-- if direct fails, allow TURN relay
-- if TURN also unavailable or disabled, fallback to on-chain
+- use public STUN/signaling nodes only for discovery, address probing, and handshake exchange
+- if direct traversal still fails, fallback to on-chain
 
-The relay is transport fallback, not application HTTP chat delivery.
+TURN/relay data forwarding is disabled by default because it consumes public-node traffic.
+
+## Public Node Auto Role
+
+Nodes with a globally routable public IP should automatically become P2P infrastructure candidates.
+
+At startup, each node must determine whether its externally observed IP is a global public IP. The detector must reject loopback, private LAN, link-local, carrier-grade NAT, multicast, documentation, reserved, and otherwise non-global ranges.
+
+If the node has a global public IP and the operator has not disabled this behavior, it should automatically start:
+
+- signaling / rendezvous service
+- STUN binding service
+- public reachability self-check
+- signed capability announcement
+
+It must not start TURN/relay data forwarding by default.
+
+The announcement must include:
+
+- `nodeId`
+- `publicIp`
+- `signalEndpoint`
+- `stunEndpoint`
+- `capabilities`
+- `timestamp`
+- `expiresAt`
+- `signature`
+
+Non-public nodes must not announce TURN/relay capability, but they should consume verified public-node announcements as ICE/STUN candidates.
+
+Example: a node such as `8.136.3.174` should become a signaling + STUN candidate only after public-IP detection and reachability self-check pass. A public IP alone is not enough; the service must be running and externally reachable.
 
 ## Migration Plan
 

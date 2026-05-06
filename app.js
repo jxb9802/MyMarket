@@ -7,8 +7,8 @@ const E2E_UI_MODE = (() => {
 })();
 
 const PRODUCT_IMAGE_UPLOAD_MAX_BYTES = 1 * 1024 * 1024;
-const PRODUCT_IMAGE_CHAIN_MAX_CHARS = 24000;
-const PRODUCT_IMAGE_THUMBNAIL_MAX_EDGE = 160;
+const PRODUCT_IMAGE_CHAIN_MAX_CHARS = 60000;
+const PRODUCT_IMAGE_THUMBNAIL_SIZE = 460;
 const PRODUCT_IMAGE_ALLOWED_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const DONATION_ADDRESS = "13uvtJAitXkLMffuEjLDZckAyoVMu2QsiX";
 
@@ -178,6 +178,7 @@ const state = {
     conflictResolver: null,
     orderDetail: { orderId: "", role: "buyer" },
     orderNotifications: { buyer: false, seller: false, signatures: {}, baselineReady: false },
+    orderChatUnread: {},
     orderPurchaseConfirmResolver: null,
     sellerAcceptConfirmResolver: null,
     shipmentInfoResolver: null,
@@ -299,6 +300,12 @@ const PUSH_CHAIN_OP_TIMEOUT_MS = 20 * 60 * 1000;
 const PUSH_CHAIN_STATUS_TIMEOUT_MS = 60000;
 const BUYER_ALL_MERCHANTS = "__ALL__";
 const WALLET_SEND_PREFLIGHT_STORAGE_KEY = "bsv_market.wallet_send_preflight.v2";
+const ORDER_NOTIFICATION_SIGNATURE_STORAGE_KEY = "bsv_market.order_notification_signatures.v1";
+const LOCAL_ORDER_NOTIFICATION_SUPPRESS_MS = 120000;
+const localOrderNotificationSuppressions = {
+  byId: new Map(),
+  createIntents: [],
+};
 const CORE_BOOTSTRAP_DOMAINS = ["sync", "wallet", "profile"];
 const DEFAULT_CATEGORY_OPTIONS_FALLBACK = [
   "女装",
@@ -776,6 +783,7 @@ function openSellerAcceptConfirmModal(order) {
   const priceSat = Math.max(0, Number(safeOrder?.funds?.priceSats || orderAmountSats(safeOrder)));
   const buyerLockSat = Math.max(0, Number(safeOrder?.funds?.buyerLockedSats || 0));
   const sellerDepositSat = Math.max(0, Number(safeOrder?.funds?.sellerDepositSats || Math.floor(priceSat * 0.1)));
+  const estimatedShipFeeSat = Math.max(0, Number(safeOrder?.chain?.sellerShipAnchorFeeSats || 0));
   const merchantId = String(safeOrder?.snapshot?.merchant_id || safeOrder?.snapshot?.merchantId || safeOrder?.chain?.sellerMerchantId || "").trim();
   if (els.sellerAcceptConfirmProductName) els.sellerAcceptConfirmProductName.textContent = orderSnapshotTitle(safeOrder);
   if (els.sellerAcceptConfirmMerchant) els.sellerAcceptConfirmMerchant.textContent = merchantNameById(merchantId) || merchantId || "-";
@@ -786,7 +794,8 @@ function openSellerAcceptConfirmModal(order) {
   if (els.sellerAcceptConfirmMessage) {
     els.sellerAcceptConfirmMessage.textContent = trf("seller_accept_confirm_message", {
       deposit: fmtSatAsBsv(sellerDepositSat),
-    }, `Accepting this order will lock 10% seller deposit ${fmtSatAsBsv(sellerDepositSat)}. It will be returned after completion. Confirm to compose and broadcast now.`);
+      shipFee: estimatedShipFeeSat > 0 ? fmtSatAsBsv(estimatedShipFeeSat) : tr("fee_estimate_pending", "待估算"),
+    }, `Accepting this order will lock 5% seller deposit ${fmtSatAsBsv(sellerDepositSat)}. Estimated shipment on-chain fee ${estimatedShipFeeSat > 0 ? fmtSatAsBsv(estimatedShipFeeSat) : "pending"} will be paid when shipping. Confirm to compose and broadcast now.`);
   }
   if (els.sellerAcceptConfirmModal) els.sellerAcceptConfirmModal.classList.remove("hidden");
   return new Promise((resolve) => {
@@ -852,17 +861,7 @@ function walletHeaderStatusLabel(gate) {
 }
 
 function canceledOrderStatusLabel(order = null) {
-  const settlementMode = String(order?.funds?.settlement?.mode || "").toUpperCase();
-  const transitions = Array.isArray(order?.transitionIds) ? order.transitionIds.join(" ") : "";
-  const tip = String(order?.tip || "");
-  const chainText = `${settlementMode} ${transitions} ${tip}`;
-  if (/SELLER_CANCEL|order_cancel_before_ship|sellerCancel|卖家/.test(chainText)) {
-    return tr("order_status_seller_canceled", "卖家已取消");
-  }
-  if (/TIMED_OUT|order_timeout_cancel|timeoutCancel|超时/.test(chainText)) {
-    return tr("order_status_timed_out", "已超时");
-  }
-  return tr("order_status_buyer_canceled", "买家已取消");
+  return tr("order_status_canceled", "取消");
 }
 
 function orderStatusLabel(status, order = null) {
@@ -922,16 +921,16 @@ async function buildProductThumbnailDataUrl(file) {
   }
   const dataUrl = await fileToDataUrl(file);
   const img = await loadImageElement(dataUrl);
-  const limit = PRODUCT_IMAGE_THUMBNAIL_MAX_EDGE;
-  const ratio = Math.min(limit / Math.max(1, img.width), limit / Math.max(1, img.height), 1);
-  const width = Math.max(1, Math.round(img.width * ratio));
-  const height = Math.max(1, Math.round(img.height * ratio));
+  const size = PRODUCT_IMAGE_THUMBNAIL_SIZE;
+  const sourceSize = Math.min(Math.max(1, img.width), Math.max(1, img.height));
+  const sourceX = Math.max(0, Math.round((img.width - sourceSize) / 2));
+  const sourceY = Math.max(0, Math.round((img.height - sourceSize) / 2));
   const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
+  canvas.width = size;
+  canvas.height = size;
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error(tr("product_image_thumbnail_failed", "Thumbnail processing failed"));
-  ctx.drawImage(img, 0, 0, width, height);
+  ctx.drawImage(img, sourceX, sourceY, sourceSize, sourceSize, 0, 0, size, size);
   let quality = 0.82;
   let out = canvas.toDataURL("image/jpeg", quality);
   while (out.length > PRODUCT_IMAGE_CHAIN_MAX_CHARS && quality > 0.45) {
@@ -1458,7 +1457,7 @@ function commandProgressView(kind, payload) {
         const activeSinceMs = Date.parse(stageUpdatedAt);
         const activeElapsedMs = Number.isFinite(activeSinceMs) && activeSinceMs > 0 ? Date.now() - activeSinceMs : 0;
         step.detail = activeElapsedMs > 0
-          ? trf("tx_progress_current_step_elapsed", { detail: baseDetail, elapsed: formatElapsedText(activeElapsedMs) }, `${baseDetail} (${formatElapsedText(activeElapsedMs)})`)
+          ? trf("tx_progress_current_step_elapsed", { step: baseDetail, detail: baseDetail, elapsed: formatElapsedText(activeElapsedMs) }, `${baseDetail}，用时 ${formatElapsedText(activeElapsedMs)}`)
           : baseDetail;
       }
     }
@@ -1632,8 +1631,8 @@ function renderSyncChainProgressTick(title, startedAt, options = {}) {
             : tr("tx_progress_broadcasting_detail", "Broadcasting to network nodes")));
       step.detail = trf(
         "tx_progress_current_step_elapsed",
-        { detail: baseDetail, elapsed: formatElapsedText(elapsedMs) },
-        `${baseDetail} (${formatElapsedText(elapsedMs)})`,
+        { step: baseDetail, detail: baseDetail, elapsed: formatElapsedText(elapsedMs) },
+        `${baseDetail}，用时 ${formatElapsedText(elapsedMs)}`,
       );
     }
   });
@@ -3004,7 +3003,7 @@ function localizeApiErrorText(message = "", code = "") {
     return tr("wallet_login_required", "Please sign in to the wallet first");
   }
   if (/等待发货交易区块确认后才可确认收货|wait for the shipment transaction/i.test(raw)) {
-    return tr("buyer_order_wait_ship_confirmed", "Wait until the shipment transaction is confirmed before confirming receipt");
+    return tr("buyer_order_wait_ship_confirmed", "等待发货交易区块确认后才可确认收货");
   }
   if (/order not found|订单不存在/i.test(raw)) return tr("order_not_found", "Order not found");
   if (/product unavailable|商品不可用/i.test(raw)) return tr("product_unavailable", "Product unavailable");
@@ -3071,7 +3070,54 @@ function localizeWalletHistoryLabel(label = "") {
   if (raw === "归集手续费") return tr("wallet_self_consolidation_fee", "Consolidation fee");
   if (raw === "上链支出") return tr("wallet_onchain_spend", "On-chain spend");
   if (raw === "商品收入") return tr("wallet_product_income", "Product income");
+  if (raw === "订单支出") return tr("wallet_order_spend", "Order spend");
+  if (raw === "订单转账") return tr("wallet_tx_type_order_transfer", "Order transfer");
+  if (raw === "普通转账") return tr("wallet_tx_type_wallet_transfer", "Wallet transfer");
+  if (raw === "数据上链") return tr("wallet_tx_type_data_anchor", "Data anchor");
   return raw;
+}
+
+function localizeWalletTransactionType(type = "", label = "") {
+  const raw = String(type || "").trim();
+  if (raw === "order_transfer") return tr("wallet_tx_type_order_transfer", "Order transfer");
+  if (raw === "data_anchor") return tr("wallet_tx_type_data_anchor", "Data anchor");
+  if (raw === "wallet_transfer") return tr("wallet_tx_type_wallet_transfer", "Wallet transfer");
+  return localizeWalletHistoryLabel(label) || tr("wallet_tx_type_wallet_transfer", "Wallet transfer");
+}
+
+function formatWalletSatAmount(sat = 0, options = {}) {
+  const value = Number(sat || 0);
+  const sign = options.sign === false ? "" : (value >= 0 ? "+" : "-");
+  return `${sign}${(Math.abs(value) / 100000000).toFixed(8)} BSV`;
+}
+
+function renderOrderSettlementBreakdownHtml(breakdown = null) {
+  if (!breakdown || typeof breakdown !== "object") return "";
+  const rows = [];
+  const role = String(breakdown.role || "");
+  if (role === "seller") {
+    if (Number(breakdown.productIncomeSat || 0) > 0) {
+      rows.push(`${tr("wallet_order_product_income", "Product income")} ${formatWalletSatAmount(breakdown.productIncomeSat)}`);
+    }
+    if (Number(breakdown.depositRefundSat || 0) > 0) {
+      rows.push(`${tr("wallet_order_seller_deposit_refund", "Seller deposit returned")} ${formatWalletSatAmount(breakdown.depositRefundSat)}`);
+    }
+  } else if (role === "buyer") {
+    if (Number(breakdown.productSpendSat || 0) > 0) {
+      rows.push(`${tr("wallet_order_product_spend", "Product amount")} ${formatWalletSatAmount(-Number(breakdown.productSpendSat || 0))}`);
+    }
+    if (Number(breakdown.buyerDepositRefundSat || 0) > 0) {
+      rows.push(`${tr("wallet_order_buyer_deposit_refund", "Buyer deposit returned")} ${formatWalletSatAmount(breakdown.buyerDepositRefundSat)}`);
+    }
+  }
+  const feeNetSat = role === "seller"
+    ? Math.max(0, Number(breakdown.displayFeeNetSat || breakdown.feeNetSat || 0))
+    : Math.max(0, Number(breakdown.feeNetSat || 0));
+  if (feeNetSat > 0) {
+    rows.push(`${tr("wallet_order_settlement_fee", "Settlement fee")} ${formatWalletSatAmount(-feeNetSat)}`);
+  }
+  if (!rows.length) return "";
+  return `<p class="wallet-history-detail">${rows.map(escapeHtml).join(" | ")}</p>`;
 }
 
 function localizeWalletProgressText(message = "") {
@@ -3355,13 +3401,16 @@ function renderWalletHistoryItems(items = []) {
       ? `<button type="button" data-wallet-rebroadcast-txid="${escapeHtml(row.txid || "")}">${escapeHtml(tr("wallet_rebroadcast_button", "重新广播"))}</button>`
       : "";
     return `<div class="row wallet-history-expense"><p><strong>${escapeHtml(statusText)}</strong> ${escapeHtml(when)}</p><p>${escapeHtml(reason)}</p><p class="mono">${escapeHtml(row.txid || "")}</p>${retryButton ? `<div class="actions inline">${retryButton}</div>` : ""}</div>`;
-  }).join("") : "";
+      }).join("") : "";
   const historyHtml = safeItems.length
     ? sorted.map((x) => {
         const kind = String(x.kind || "");
-        const amountSat = Math.max(0, Number(x.amountSat || Math.abs(Number(x.netSat || 0))));
+        const netSat = Number.isFinite(Number(x.netSat)) && Number(x.netSat || 0) !== 0
+          ? Number(x.netSat)
+          : (kind === "external_receive" ? 1 : -1) * Math.max(0, Number(x.amountSat || 0));
+        const amountSat = Math.max(0, Number(x.amountSat || Math.abs(netSat || Number(x.netSat || 0))));
         const dir = kind === "external_receive" ? tr("wallet_income", "Income") : tr("wallet_expense", "Expense");
-        const amountText = `${kind === "external_receive" ? "+" : "-"}${(amountSat / 100000000).toFixed(8)} BSV`;
+        const amountText = formatWalletSatAmount(netSat || ((kind === "external_receive" ? 1 : -1) * amountSat));
         let spendLabel = "";
         if (kind === "self_consolidation_fee") {
           spendLabel = localizeWalletHistoryLabel(x.label) || tr("wallet_self_consolidation_fee", "Consolidation fee");
@@ -3370,9 +3419,15 @@ function renderWalletHistoryItems(items = []) {
         }
         const ts = x.lastSeenAt ? new Date(x.lastSeenAt).toLocaleString() : "-";
         const status = x.confirmed ? tr("wallet_confirmed", "Confirmed") : tr("wallet_unconfirmed", "Unconfirmed");
-        const typeText = kind === "external_receive" ? "" : ` (${spendLabel})`;
+        const transactionTypeText = localizeWalletTransactionType(x.transactionType, x.transactionTypeLabel);
+        const businessLabel = kind === "external_receive"
+          ? localizeWalletHistoryLabel(x.label)
+          : spendLabel;
+        const metaParts = [transactionTypeText, businessLabel].filter(Boolean);
+        const typeText = metaParts.length ? ` (${metaParts.join(" / ")})` : "";
         const rowClass = dir === tr("wallet_income", "Income") ? "wallet-history-income" : "wallet-history-expense";
-        return `<div class="row ${rowClass}"><p><strong>${escapeHtml(dir)}</strong>${escapeHtml(typeText)} ${escapeHtml(amountText)} | ${escapeHtml(status)}</p><p>${escapeHtml(ts)}</p><p class="mono">${escapeHtml(x.txid)}</p></div>`;
+        const breakdownHtml = renderOrderSettlementBreakdownHtml(x.orderBreakdown);
+        return `<div class="row ${rowClass}"><p><strong>${escapeHtml(dir)}</strong>${escapeHtml(typeText)} ${escapeHtml(amountText)} | ${escapeHtml(status)}</p>${breakdownHtml}<p>${escapeHtml(ts)}</p><p class="mono">${escapeHtml(x.txid)}</p></div>`;
       }).join("")
     : `<div class="row">${escapeHtml(tr("wallet_history_empty", "No wallet history yet"))}</div>`;
   els.walletHistoryList.innerHTML = `${monitorHtml}${historyHtml}`;
@@ -3951,15 +4006,42 @@ function handleFrontendEvent(event = {}) {
     return;
   }
   if (type === "chat.message.appended") {
-    if (!isDomainLoaded("chat")) return;
     const message = payload?.message && typeof payload.message === "object" ? payload.message : payload;
     if (!message || typeof message !== "object") return;
     const walletId = String(message?.walletId || message?.peerWalletId || "").trim();
     if (!walletId) return;
+    const isUnreadIncoming = shouldTreatIncomingMessageAsUnread(message);
+    const orderId = chatMessageOrderId(message);
+    if (!isDomainLoaded("chat")) {
+      if (isUnreadIncoming) {
+        if (orderId) {
+          markOrderChatUnread(orderId, 1);
+          playChatNotificationSound();
+          return;
+        }
+        const pair = threadByWalletId(walletId);
+        upsertChatPair(walletId, {
+          inList: true,
+          summaryLoaded: false,
+          displayName: String(message?.displayName || pair?.displayName || walletId),
+          lastMessage: chatMessagePreviewText(String(message?.text || "")),
+          lastTs: String(message?.ts || new Date().toISOString()),
+          lastMessageAt: String(message?.ts || new Date().toISOString()),
+          lastTransport: String(message?.transport || ""),
+          unreadCount: Math.max(0, Number(pair?.unreadCount || 0)) + 1,
+        });
+        rebuildChatPairCollections();
+        state.chat.buttonHasUnread = true;
+        state.chat.buttonUnreadLatched = true;
+        renderChatBadge();
+        playChatNotificationSound();
+      }
+      return;
+    }
     const reconciledPending = reconcilePendingLocalMessage(message, {
       walletId,
-      mode: message?.orderId ? "order" : "global",
-      orderId: message?.orderId || "",
+      mode: orderId ? "order" : "global",
+      orderId,
     });
     upsertChatPair(walletId, {
       inList: true,
@@ -3971,24 +4053,27 @@ function handleFrontendEvent(event = {}) {
       lastTransport: String(message?.transport || ""),
     });
     let messageChanged = reconciledPending;
-    if (!reconciledPending && (messageBelongsToCurrentChat(message) || isChatThreadLoaded(walletId, message?.orderId ? "order" : "global", message?.orderId || ""))) {
+    if (!reconciledPending && (messageBelongsToCurrentChat(message) || isChatThreadLoaded(walletId, orderId ? "order" : "global", orderId))) {
       messageChanged = upsertChatMessageInCache(message, {
         walletId,
-        mode: message?.orderId ? "order" : "global",
-        orderId: message?.orderId || "",
+        mode: orderId ? "order" : "global",
+        orderId,
       }) || messageChanged;
     }
     const serverMsgId = String(message?.msgId || "").trim();
     if (serverMsgId) {
       state.chat.pendingLocalMessages = (state.chat.pendingLocalMessages || []).filter((m) => String(m?.msgId || "") !== serverMsgId);
     }
-    const isUnreadIncoming = shouldTreatIncomingMessageAsUnread(message);
     if (isUnreadIncoming) {
-      const pair = threadByWalletId(walletId);
-      upsertChatPair(walletId, {
-        unreadCount: Math.max(0, Number(pair?.unreadCount || 0)) + 1,
-      });
-      markChatButtonUnread(1);
+      if (orderId) {
+        markOrderChatUnread(orderId, 1);
+      } else {
+        const pair = threadByWalletId(walletId);
+        upsertChatPair(walletId, {
+          unreadCount: Math.max(0, Number(pair?.unreadCount || 0)) + 1,
+        });
+        markChatButtonUnread(1);
+      }
       playChatNotificationSound();
     } else if (messageBelongsToCurrentChat(message)) {
       upsertChatPair(walletId, {
@@ -4031,14 +4116,16 @@ function handleFrontendEvent(event = {}) {
     const incomingOrders = Array.isArray(payload?.orders) ? payload.orders : null;
     if (incomingOrders) {
       const previousById = new Map((Array.isArray(state.orders) ? state.orders : []).map((order) => [String(order?.id || ""), order]));
-      const baselineWasReady = state.ui?.orderNotifications?.baselineReady === true;
+      const baselineWasReady = hydrateOrderNotificationBaselineFromStorage();
+      const previousSignatures = { ...(state.ui?.orderNotifications?.signatures || {}) };
       trackOrderNotifications(incomingOrders);
       state.orders = incomingOrders;
-      if (baselineWasReady) {
+      if (baselineWasReady || previousById.size > 0) {
         incomingOrders.forEach((order) => {
-          const previous = previousById.get(String(order?.id || ""));
+          const id = String(order?.id || order?.orderId || "");
+          const previous = previousById.get(id);
           maybeOpenBuyerShipNotice(previous, order);
-          maybeOpenOrderUpdateNotice(previous, order);
+          maybeOpenOrderUpdateNotice(previous, order, { previousSignature: previousSignatures[id] || "" });
         });
       }
     }
@@ -4055,12 +4142,17 @@ function handleFrontendEvent(event = {}) {
     const previousOrder = idx >= 0 ? next[idx] : null;
     if (idx >= 0) next[idx] = { ...next[idx], ...row };
     else next.push(row);
-    const baselineWasReady = state.ui?.orderNotifications?.baselineReady === true;
+    const baselineWasReady = hydrateOrderNotificationBaselineFromStorage();
+    const previousSignatures = { ...(state.ui?.orderNotifications?.signatures || {}) };
     trackOrderNotifications(next);
     state.orders = next;
-    if (baselineWasReady) {
-      maybeOpenBuyerShipNotice(previousOrder, idx >= 0 ? next[idx] : row);
-      maybeOpenOrderUpdateNotice(previousOrder, idx >= 0 ? next[idx] : row);
+    if (baselineWasReady || Boolean(previousOrder) || idx < 0) {
+      const nextOrder = idx >= 0 ? next[idx] : row;
+      maybeOpenBuyerShipNotice(previousOrder, nextOrder);
+      maybeOpenOrderUpdateNotice(previousOrder, nextOrder, {
+        previousSignature: previousSignatures[id] || "",
+        allowWithoutBaseline: idx < 0,
+      });
     }
     renderOrders();
     return;
@@ -4348,8 +4440,19 @@ function applyServerState(s, options = {}) {
       || !Array.isArray(state.orders)
       || state.orders.length === 0;
     if (shouldReplaceOrders) {
+      const previousById = new Map((Array.isArray(state.orders) ? state.orders : []).map((order) => [String(order?.id || order?.orderId || ""), order]));
+      const baselineWasReady = hydrateOrderNotificationBaselineFromStorage();
+      const previousSignatures = { ...(state.ui?.orderNotifications?.signatures || {}) };
       trackOrderNotifications(s.orders);
       state.orders = s.orders;
+      if (baselineWasReady || previousById.size > 0) {
+        s.orders.forEach((order) => {
+          const id = String(order?.id || order?.orderId || "");
+          const previous = previousById.get(id) || null;
+          maybeOpenBuyerShipNotice(previous, order);
+          maybeOpenOrderUpdateNotice(previous, order, { previousSignature: previousSignatures[id] || "" });
+        });
+      }
     }
   }
   if (s.chat) {
@@ -4538,6 +4641,7 @@ async function runBuyerProductPurchase(productId) {
     const confirmed = await openOrderPurchaseConfirmModal(product, quantity);
     if (!confirmed) return;
     setDomainLoaded("order", true);
+    rememberLocalOrderCreateIntent(safeProductId, quantity);
     await callAndRefresh(() => runSynchronousChainAction(
       tr("order_place_progress_title", "生成订单并广播"),
       () => api("/api/orders/place", {
@@ -4546,7 +4650,12 @@ async function runBuyerProductPurchase(productId) {
         timeoutMs: ORDER_CHAIN_OP_TIMEOUT_MS,
       }),
       { summary: tr("order_place_progress_summary", "正在生成订单交易并广播...") },
-    ));
+    ), {
+      beforeApply: (result) => rememberLocalOrdersFromState(result?.state, {
+        productId: safeProductId,
+        quantity,
+      }),
+    });
     closeProductDetailModal();
   } catch (err) {
     console.error("[buyer-product-purchase-failed]", {
@@ -4575,6 +4684,7 @@ async function runOrderChainActionWithProgress(orderId, action, options = {}) {
   };
   if (order) body.order = order;
   if (options.extraBody && typeof options.extraBody === "object") Object.assign(body, options.extraBody);
+  rememberLocalOrderMutation(safeOrderId);
   return callAndRefresh(() => runSynchronousChainAction(
     progressTitle,
     () => api(`/api/orders/${encodeURIComponent(safeOrderId)}/action`, {
@@ -4583,7 +4693,9 @@ async function runOrderChainActionWithProgress(orderId, action, options = {}) {
       timeoutMs: ORDER_CHAIN_OP_TIMEOUT_MS,
     }),
     { summary: String(options.progressSummary || tr("tx_progress_step_broadcast", "Broadcasting transaction")) },
-  ));
+  ), {
+    beforeApply: (result) => rememberLocalOrdersFromState(result?.state, { orderIds: [safeOrderId] }),
+  });
 }
 
 function openConflictModal(options = {}) {
@@ -4723,6 +4835,55 @@ function shouldTreatIncomingMessageAsUnread(message = {}) {
   return true;
 }
 
+function chatMessageOrderId(message = {}) {
+  return String(message?.orderId || message?.order_id || "").trim();
+}
+
+function isOrderChatMessage(message = {}) {
+  return Boolean(chatMessageOrderId(message));
+}
+
+function orderChatUnreadCount(orderId = "") {
+  const id = String(orderId || "").trim();
+  if (!id) return 0;
+  return Math.max(0, Number(state.ui?.orderChatUnread?.[id] || 0));
+}
+
+function orderChatUnreadDotHtml(orderId = "") {
+  return orderChatUnreadCount(orderId) > 0
+    ? `<span class="order-chat-unread-dot" aria-hidden="true"></span>`
+    : "";
+}
+
+function orderChatUnreadTotal() {
+  return Object.values(state.ui?.orderChatUnread || {})
+    .reduce((sum, value) => sum + Math.max(0, Number(value || 0)), 0);
+}
+
+function markOrderChatUnread(orderId = "", increment = 1) {
+  const id = String(orderId || "").trim();
+  if (!id) return;
+  const step = Math.max(1, Number(increment || 1));
+  state.ui.orderChatUnread = {
+    ...(state.ui.orderChatUnread || {}),
+    [id]: Math.max(0, Number(state.ui.orderChatUnread?.[id] || 0)) + step,
+  };
+  renderOrders();
+  if (String(state.ui?.orderDetail?.orderId || "") === id) renderOrderDetailModal();
+  renderChatBadge();
+}
+
+function clearOrderChatUnread(orderId = "") {
+  const id = String(orderId || "").trim();
+  if (!id || !state.ui?.orderChatUnread?.[id]) return;
+  const next = { ...(state.ui.orderChatUnread || {}) };
+  delete next[id];
+  state.ui.orderChatUnread = next;
+  renderOrders();
+  if (String(state.ui?.orderDetail?.orderId || "") === id) renderOrderDetailModal();
+  renderChatBadge();
+}
+
 function markChatButtonUnread(increment = 1) {
   const step = Math.max(1, Number(increment || 1));
   state.chat.buttonHasUnread = true;
@@ -4781,7 +4942,8 @@ function playChatNotificationSound() {
 
 function renderChatBadge() {
   const unread = Math.max(0, Number(state.chat.unreadTotal || 0));
-  const hasUnread = !isChatModalOpen() && (unread > 0 || Boolean(state.chat.buttonHasUnread) || Boolean(state.chat.buttonUnreadLatched));
+  const globalUnread = Math.max(0, unread - orderChatUnreadTotal());
+  const hasUnread = !isChatModalOpen() && (globalUnread > 0 || Boolean(state.chat.buttonHasUnread) || Boolean(state.chat.buttonUnreadLatched));
   if (els.btnChat) {
     els.btnChat.classList.toggle("has-unread", hasUnread);
   }
@@ -6043,8 +6205,23 @@ function resolveProductChatWalletId(productOrId = null) {
   return resolveMerchantChatWalletId(product?.merchantId);
 }
 
+function currentChatWalletId() {
+  return walletIdByMerchant(state.currentMerchantId || "");
+}
+
+function orderChainChatPubKey(order = null, role = "") {
+  const safeRole = String(role || "").trim();
+  if (safeRole === "buyer") {
+    return String(order?.chain?.buyerChatPubKey || order?.buyerChatPubKey || "").trim();
+  }
+  if (safeRole === "seller") {
+    return String(order?.chain?.sellerChatPubKey || order?.sellerChatPubKey || "").trim();
+  }
+  return "";
+}
+
 function resolveOrderChatWalletId(order = null) {
-  const currentWalletId = walletIdByMerchant(state.currentMerchantId || "");
+  const currentWalletId = currentChatWalletId();
   const buyerWalletId = String(order?.buyerWalletId || "").trim();
   const sellerWalletId = String(order?.sellerWalletId || "").trim();
   if (currentWalletId) {
@@ -6056,6 +6233,34 @@ function resolveOrderChatWalletId(order = null) {
   const productId = String(order?.snapshot?.product_id || "");
   const product = state.products.find((p) => String(p?.id || "") === productId) || null;
   return resolveMerchantChatWalletId(product?.merchantId || order?.merchantId);
+}
+
+function orderPeerChatPubKeyCandidates(order = null) {
+  const currentWalletId = currentChatWalletId();
+  const buyerWalletId = String(order?.buyerWalletId || "").trim();
+  const sellerWalletId = String(order?.sellerWalletId || "").trim();
+  const buyerPubKey = orderChainChatPubKey(order, "buyer");
+  const sellerPubKey = orderChainChatPubKey(order, "seller");
+  const candidates = [];
+  if (currentWalletId && sellerWalletId === currentWalletId && buyerPubKey) candidates.push(buyerPubKey);
+  if (currentWalletId && buyerWalletId === currentWalletId && sellerPubKey) candidates.push(sellerPubKey);
+  if (!buyerWalletId && buyerPubKey) candidates.push(buyerPubKey);
+  if (!sellerWalletId && sellerPubKey) candidates.push(sellerPubKey);
+  return [...new Set(candidates.filter(Boolean))];
+}
+
+async function resolveOrderChatWalletIdWithPubKeyFallback(order = null, initialWalletId = "") {
+  const currentWalletId = currentChatWalletId();
+  const initial = String(initialWalletId || "").trim();
+  if (initial && initial !== currentWalletId) return initial;
+  for (const pubKey of orderPeerChatPubKeyCandidates(order)) {
+    try {
+      const result = await api(`/api/chat/wallet-id-for-pubkey?pubKey=${encodeURIComponent(pubKey)}`, { silent: true });
+      const walletId = String(result?.walletId || "").trim();
+      if (walletId && walletId !== currentWalletId) return walletId;
+    } catch (_) {}
+  }
+  return initial;
 }
 
 async function markActiveChatThreadRead() {
@@ -6300,6 +6505,95 @@ function orderChangeSignature(order = {}) {
   });
 }
 
+function pruneLocalOrderNotificationSuppressions(now = Date.now()) {
+  for (const [id, entry] of localOrderNotificationSuppressions.byId.entries()) {
+    const until = Math.max(
+      Number(entry?.wildcardUntil || 0),
+      ...Object.values(entry?.signatures || {}).map((value) => Number(value || 0)),
+    );
+    if (!id || until <= now) localOrderNotificationSuppressions.byId.delete(id);
+  }
+  localOrderNotificationSuppressions.createIntents = (localOrderNotificationSuppressions.createIntents || [])
+    .filter((item) => Number(item?.until || 0) > now);
+}
+
+function rememberLocalOrderMutation(orderOrId = "", options = {}) {
+  const order = orderOrId && typeof orderOrId === "object" ? orderOrId : null;
+  const id = String(order?.id || order?.orderId || orderOrId || "").trim();
+  if (!id) return;
+  const now = Date.now();
+  pruneLocalOrderNotificationSuppressions(now);
+  const entry = localOrderNotificationSuppressions.byId.get(id) || { wildcardUntil: 0, signatures: {} };
+  entry.wildcardUntil = Math.max(Number(entry.wildcardUntil || 0), now + Math.max(1000, Number(options.ms || LOCAL_ORDER_NOTIFICATION_SUPPRESS_MS)));
+  if (order) {
+    entry.signatures = entry.signatures || {};
+    entry.signatures[orderChangeSignature(order)] = entry.wildcardUntil;
+  }
+  localOrderNotificationSuppressions.byId.set(id, entry);
+}
+
+function rememberLocalOrderCreateIntent(productId = "", quantity = 1) {
+  const safeProductId = String(productId || "").trim();
+  if (!safeProductId) return;
+  const now = Date.now();
+  pruneLocalOrderNotificationSuppressions(now);
+  localOrderNotificationSuppressions.createIntents.push({
+    productId: safeProductId,
+    quantity: Math.max(1, Math.floor(Number(quantity || 1))),
+    buyerWalletId: walletIdByMerchant(state.currentMerchantId || ""),
+    until: now + LOCAL_ORDER_NOTIFICATION_SUPPRESS_MS,
+  });
+}
+
+function rememberLocalOrdersFromState(nextState = {}, options = {}) {
+  const ids = new Set((Array.isArray(options.orderIds) ? options.orderIds : [])
+    .map((id) => String(id || "").trim())
+    .filter(Boolean));
+  const productId = String(options.productId || "").trim();
+  const quantity = Math.max(1, Math.floor(Number(options.quantity || 1)));
+  const currentWalletId = walletIdByMerchant(state.currentMerchantId || "");
+  for (const order of (Array.isArray(nextState?.orders) ? nextState.orders : [])) {
+    const id = String(order?.id || order?.orderId || "").trim();
+    if (ids.has(id)) rememberLocalOrderMutation(order);
+    if (
+      productId
+      && currentWalletId
+      && String(order?.buyerWalletId || "") === currentWalletId
+      && orderProductId(order) === productId
+      && orderQuantity(order) === quantity
+    ) {
+      rememberLocalOrderMutation(order);
+    }
+  }
+}
+
+function isLocalOrderNotificationSuppressed(order = {}) {
+  const id = String(order?.id || order?.orderId || "").trim();
+  const now = Date.now();
+  pruneLocalOrderNotificationSuppressions(now);
+  if (id) {
+    const entry = localOrderNotificationSuppressions.byId.get(id);
+    const signatureUntil = Number(entry?.signatures?.[orderChangeSignature(order)] || 0);
+    if (Number(entry?.wildcardUntil || 0) > now || signatureUntil > now) return true;
+  }
+  const currentWalletId = walletIdByMerchant(state.currentMerchantId || "");
+  const productId = orderProductId(order);
+  const quantity = orderQuantity(order);
+  const status = String(order?.status || "").toUpperCase();
+  return (localOrderNotificationSuppressions.createIntents || []).some((intent) => (
+    Number(intent?.until || 0) > now
+    && String(intent?.buyerWalletId || "") === currentWalletId
+    && String(order?.buyerWalletId || "") === currentWalletId
+    && (
+      (
+        String(intent?.productId || "") === productId
+        && Number(intent?.quantity || 0) === quantity
+      )
+      || status === "PLACED"
+    )
+  ));
+}
+
 function orderRolesForNotification(order = {}) {
   const currentWalletId = walletIdByMerchant(state.currentMerchantId || "");
   const roles = [];
@@ -6316,6 +6610,45 @@ function renderOrderNotificationBadges() {
   });
 }
 
+function orderNotificationStorageKey() {
+  const scope = walletIdByMerchant(state.currentMerchantId || "") || String(state.currentMerchantId || "default");
+  return `${ORDER_NOTIFICATION_SIGNATURE_STORAGE_KEY}.${encodeURIComponent(scope || "default")}`;
+}
+
+function loadStoredOrderNotificationSignatures() {
+  try {
+    const raw = globalThis.localStorage?.getItem(orderNotificationStorageKey()) || "";
+    const parsed = raw ? JSON.parse(raw) : null;
+    const signatures = parsed?.signatures && typeof parsed.signatures === "object" ? parsed.signatures : parsed;
+    if (!signatures || typeof signatures !== "object") return {};
+    return Object.fromEntries(Object.entries(signatures)
+      .map(([id, sig]) => [String(id || "").trim(), String(sig || "")])
+      .filter(([id, sig]) => id && sig));
+  } catch (_) {
+    return {};
+  }
+}
+
+function saveOrderNotificationSignatures(signatures = {}) {
+  try {
+    globalThis.localStorage?.setItem(orderNotificationStorageKey(), JSON.stringify({
+      signatures: signatures && typeof signatures === "object" ? signatures : {},
+      savedAt: new Date().toISOString(),
+    }));
+  } catch (_) {}
+}
+
+function hydrateOrderNotificationBaselineFromStorage() {
+  state.ui.orderNotifications = state.ui.orderNotifications || { buyer: false, seller: false, signatures: {}, baselineReady: false };
+  const current = state.ui.orderNotifications.signatures || {};
+  if (state.ui.orderNotifications.baselineReady === true || Object.keys(current).length > 0) return true;
+  const stored = loadStoredOrderNotificationSignatures();
+  if (!Object.keys(stored).length) return false;
+  state.ui.orderNotifications.signatures = stored;
+  state.ui.orderNotifications.baselineReady = true;
+  return true;
+}
+
 function clearOrderNotification(role = "") {
   const safeRole = role === "seller" ? "seller" : "buyer";
   state.ui.orderNotifications = state.ui.orderNotifications || { buyer: false, seller: false, signatures: {}, baselineReady: false };
@@ -6326,6 +6659,7 @@ function clearOrderNotification(role = "") {
 function trackOrderNotifications(nextOrders = [], options = {}) {
   const rows = Array.isArray(nextOrders) ? nextOrders : [];
   state.ui.orderNotifications = state.ui.orderNotifications || { buyer: false, seller: false, signatures: {}, baselineReady: false };
+  if (options.forceBaseline !== true) hydrateOrderNotificationBaselineFromStorage();
   const previous = state.ui.orderNotifications.signatures || {};
   const nextSignatures = {};
   let hasKnownBaseline = state.ui.orderNotifications.baselineReady === true || Object.keys(previous).length > 0;
@@ -6338,6 +6672,7 @@ function trackOrderNotifications(nextOrders = [], options = {}) {
     nextSignatures[id] = sig;
     if (!hasKnownBaseline) continue;
     if (previous[id] === sig) continue;
+    if (isLocalOrderNotificationSuppressed(order)) continue;
     for (const role of orderRolesForNotification(order)) {
       if (role !== state.activeRole || !isDocumentActive()) {
         state.ui.orderNotifications[role] = true;
@@ -6346,6 +6681,7 @@ function trackOrderNotifications(nextOrders = [], options = {}) {
   }
   state.ui.orderNotifications.signatures = nextSignatures;
   state.ui.orderNotifications.baselineReady = true;
+  saveOrderNotificationSignatures(nextSignatures);
   renderOrderNotificationBadges();
 }
 
@@ -6366,19 +6702,24 @@ function maybeOpenBuyerShipNotice(previousOrder = null, nextOrder = null) {
   toast(tr("buyer_ship_notice_toast", "卖家已发货，已打开发货交易详情"));
 }
 
-function maybeOpenOrderUpdateNotice(previousOrder = null, nextOrder = null) {
+function maybeOpenOrderUpdateNotice(previousOrder = null, nextOrder = null, options = {}) {
   const next = nextOrder && typeof nextOrder === "object" ? nextOrder : null;
   if (!next || !isDocumentActive()) return;
-  if (state.ui?.orderNotifications?.baselineReady !== true) return;
+  if (state.ui?.orderNotifications?.baselineReady !== true && options.allowWithoutBaseline !== true) return;
   const id = String(next.id || next.orderId || "").trim();
   if (!id) return;
   if (state.ui.orderDetail?.orderId === id) return;
+  if (isLocalOrderNotificationSuppressed(next)) return;
   const roles = orderRolesForNotification(next);
   if (!roles.length) return;
   const prev = previousOrder && typeof previousOrder === "object" ? previousOrder : null;
-  const isNew = !prev;
+  const previousSignature = String(options?.previousSignature || "").trim();
+  const nextSignature = orderChangeSignature(next);
+  const isNew = !prev && !previousSignature;
   const statusChanged = prev && String(prev.status || "") !== String(next.status || "");
-  const txChanged = prev && orderChangeSignature(prev) !== orderChangeSignature(next);
+  const txChanged = prev
+    ? orderChangeSignature(prev) !== nextSignature
+    : Boolean(previousSignature && previousSignature !== nextSignature);
   if (!isNew && !statusChanged && !txChanged) return;
   const role = roles.includes(state.activeRole) ? state.activeRole : roles[0];
   openOrderDetailModal(id, role);
@@ -6476,6 +6817,7 @@ function orderStatusBarHtml(order) {
   const status = String(order?.status || "").toUpperCase();
   const isAtLeastLocked = ["LOCKED", "SHIPPED", "REFUND_REQUESTED", "RETURNING", "RETURN_REQUESTED", "REFUNDED", "COMPLETED", "DISPUTED", "DISPUTE"].includes(status);
   const isAtLeastShipped = ["SHIPPED", "REFUND_REQUESTED", "RETURNING", "RETURN_REQUESTED", "REFUNDED", "COMPLETED", "DISPUTED", "DISPUTE"].includes(status);
+  const isCanceled = status === "CANCELED";
   const isReturnFlow = ["REFUND_REQUESTED", "RETURNING", "RETURN_REQUESTED", "REFUNDED", "DISPUTED", "DISPUTE"].includes(status);
   const isCompleted = status === "COMPLETED";
   const isRefunded = status === "REFUNDED";
@@ -6486,6 +6828,8 @@ function orderStatusBarHtml(order) {
     ${node("created", tr("order_step_placed", "已下单"), "buyer")}
     ${edge("created-locked", isAtLeastLocked ? "seller" : "")}
     ${node("locked", tr("order_step_locked", "锁定"), isAtLeastLocked ? "seller" : "")}
+    ${edge("locked-canceled", isCanceled ? "seller" : "")}
+    ${node("canceled", tr("order_step_canceled", "取消"), isCanceled ? "seller" : "")}
     ${edge("locked-shipped", isAtLeastShipped ? "seller" : "")}
     ${node("shipped", tr("order_step_shipped", "已发货"), isAtLeastShipped ? "seller" : "")}
     ${edge("shipped-confirm", isCompleted ? "buyer" : "")}
@@ -7024,6 +7368,22 @@ function renderMerchants() {
     : `<div class="row">${escapeHtml(tr("merchant_empty", "No merchants available to browse"))}</div>`;
 }
 
+function renderBuyerMerchantCategories() {
+  if (!els.buyerMerchantCategoryList) return;
+  if (!isDomainLoaded("catalog")) {
+    els.buyerMerchantCategoryList.innerHTML = `<div class="row">${escapeHtml(tr("catalog_not_loaded", "Catalog not loaded yet. Click Refresh or switch roles to load it."))}</div>`;
+    return;
+  }
+  const rows = buyerMerchantCategories();
+  const selected = String(state.selectedBuyerMerchantCategoryId || "ALL");
+  els.buyerMerchantCategoryList.innerHTML = rows.length
+    ? rows.map((item) => {
+        const id = String(item.id || "ALL");
+        return `<div class="row buyer-side-nav-item${selected === id ? " active" : ""}" data-buyer-merchant-category="${escapeHtml(id)}"><span class="buyer-side-nav-label">${escapeHtml(item.name || id)}</span><span class="buyer-side-nav-arrow" aria-hidden="true">›</span></div>`;
+      }).join("")
+    : `<div class="row">${escapeHtml(tr("categories_empty", "No categories yet"))}</div>`;
+}
+
 function renderBuyerProducts() {
   const listEl = state.buyerBrowseMode === "merchant" ? els.buyerMerchantProductList : els.productList;
   if (!listEl) return;
@@ -7202,7 +7562,7 @@ function openProductEditModal(productId) {
 function orderDetailOpenButtonHtml(order, role = "buyer") {
   const safeOrderId = escapeHtml(order?.id || "");
   const safeRole = escapeHtml(role || "buyer");
-  return `<button type="button" data-open-order-detail data-order-role="${safeRole}" data-order-id="${safeOrderId}">${escapeHtml(tr("order_detail_action", "详情/操作"))}</button>`;
+  return `<button type="button" class="order-chat-unread-anchor" data-open-order-detail data-order-role="${safeRole}" data-order-id="${safeOrderId}">${escapeHtml(tr("order_detail_action", "详情/操作"))}${orderChatUnreadDotHtml(order?.id || "")}</button>`;
 }
 
 function buyerOrderActionButtonsHtml(order) {
@@ -7214,7 +7574,7 @@ function buyerOrderActionButtonsHtml(order) {
   const waitMessage = tr("buyer_order_wait_ship_confirmed", "等待发货交易区块确认后才可确认收货");
   const confirmTitle = shipped && !shipConfirmed ? escapeHtml(waitMessage) : "";
   const waitTip = shipped && !shipConfirmed ? `<p class="hint order-confirm-wait-tip">${escapeHtml(waitMessage)}</p>` : "";
-  return `${waitTip}<button data-order-action="confirmReceipt" data-order-id="${safeOrderId}" title="${confirmTitle}" ${confirmable ? "" : "disabled"}>${escapeHtml(tr("order_action_confirm", "Confirm receipt"))}</button><button data-order-action="requestRefund" data-order-id="${safeOrderId}" ${returnable ? "" : "disabled"}>${escapeHtml(tr("order_action_return", "Request return"))}</button><button data-order-action="chat" data-order-id="${safeOrderId}">${escapeHtml(tr("order_action_chat", "Chat"))}</button>`;
+  return `${waitTip}<button data-order-action="confirmReceipt" data-order-id="${safeOrderId}" title="${confirmTitle}" ${confirmable ? "" : "disabled"}>${escapeHtml(tr("order_action_confirm", "Confirm receipt"))}</button><button data-order-action="requestRefund" data-order-id="${safeOrderId}" ${returnable ? "" : "disabled"}>${escapeHtml(tr("order_action_return", "Request return"))}</button><button class="order-chat-unread-anchor" data-order-action="chat" data-order-id="${safeOrderId}">${escapeHtml(tr("order_action_chat", "Chat"))}${orderChatUnreadDotHtml(order.id || "")}</button>`;
 }
 
 function orderPlaceConfirmed(order) {
@@ -7261,6 +7621,24 @@ function orderShipWaitNoticeHtml(order) {
   return `<p class="hint order-ship-wait-tip">${escapeHtml(trf("seller_order_wait_ship_block_tip", { current: shipWait.localHeight, accepted: shipWait.acceptedAtHeight }, `等待确认完成后才可发货。当前高度 ${shipWait.localHeight}，确认订单高度 ${shipWait.acceptedAtHeight}`))}</p>`;
 }
 
+function isStandardBuyerLockScriptHex(scriptHex = "") {
+  return /^76a914[0-9a-f]{40}88ac$/i.test(String(scriptHex || "").trim());
+}
+
+function sellerCancelRequestText(order = null) {
+  const scriptHex = String(order?.chain?.buyerLockRedeemScriptHex || "").trim();
+  if (scriptHex && isStandardBuyerLockScriptHex(scriptHex)) {
+    return tr(
+      "seller_order_cancel_request_standard_lock",
+      "当前订单使用标准买家锁脚本，将按协议广播卖家取消请求；买家钱包同步到请求后完成退款取消。",
+    );
+  }
+  return tr(
+    "seller_order_cancel_direct_notice",
+    "将广播卖家取消请求；如订单脚本支持安全直接取消，系统会完成取消退款。",
+  );
+}
+
 function sellerOrderActionButtonsHtml(order) {
   const pendingConfirmation = orderPendingConfirmation(order);
   const acceptable = order.status === "PLACED" && !pendingConfirmation;
@@ -7280,7 +7658,7 @@ function sellerOrderActionButtonsHtml(order) {
     buttons.push(`<button data-seller-order-action="accept" data-order-id="${safeOrderId}">${escapeHtml(tr("seller_order_action_accept_order", "确认订单"))}</button>`);
   }
   if (cancelable) {
-    buttons.push(`<button data-seller-order-action="sellerCancel" data-order-id="${safeOrderId}">${escapeHtml(tr("seller_order_action_cancel", "取消订单"))}</button>`);
+    buttons.push(`<button data-seller-order-action="sellerCancel" data-order-id="${safeOrderId}" title="${escapeHtml(sellerCancelRequestText(order))}">${escapeHtml(tr("seller_order_action_cancel", "取消订单"))}</button>`);
   }
   if (order.status === "LOCKED") {
     const shipTitle = shipWait.waiting
@@ -7291,7 +7669,7 @@ function sellerOrderActionButtonsHtml(order) {
   if (acceptReturnable) {
     buttons.push(`<button data-seller-order-action="confirmRefund" data-order-id="${safeOrderId}">${escapeHtml(tr("seller_order_action_accept_return", "Confirm return"))}</button>`);
   }
-  buttons.push(`<button data-seller-order-action="chat" data-order-id="${safeOrderId}">${escapeHtml(tr("order_action_chat", "Chat"))}</button>`);
+  buttons.push(`<button class="order-chat-unread-anchor" data-seller-order-action="chat" data-order-id="${safeOrderId}">${escapeHtml(tr("order_action_chat", "Chat"))}${orderChatUnreadDotHtml(order.id || "")}</button>`);
   return `${waitTip}${buttons.join("")}`;
 }
 
@@ -7302,14 +7680,25 @@ function orderLockRowsHtml(order) {
   const priceSats = orderAmountSats(order);
   const buyerDeposit = Math.max(0, buyerLocked - priceSats);
   const sellerDeposit = Number(funds.sellerDepositSats || sellerLocked || 0);
+  const settlementFee = Math.max(0, Number(order?.chain?.sellerSettlementFeeSats || 0));
+  const shipFee = Math.max(0, Number(order?.chain?.sellerShipAnchorFeeSats || 0));
+  const feeRows = [
+    settlementFee > 0
+      ? `<div class="order-party-seller"><span>${escapeHtml(tr("seller_settlement_fee_reserve_label", "确认收货结算费预留"))}</span><strong>${escapeHtml(fmtSatAsBsv(settlementFee))}</strong></div>`
+      : "",
+    shipFee > 0
+      ? `<div class="order-party-seller"><span>${escapeHtml(tr("seller_ship_fee_estimate_label", "预计发货上链费"))}</span><strong>${escapeHtml(fmtSatAsBsv(shipFee))}</strong></div>`
+      : "",
+  ].join("");
   return `<div class="order-detail-grid">
     <div><span>${escapeHtml(tr("order_time_label", "时间"))}</span><strong>${escapeHtml(orderDisplayTime(order))}</strong></div>
     <div><span>${escapeHtml(tr("labelQuantity", "数量"))}</span><strong>${orderQuantity(order)}</strong></div>
     <div><span>${escapeHtml(tr("order_amount_label", "商品金额"))}</span><strong>${escapeHtml(fmtSatAsBsv(priceSats))}</strong></div>
-    <div><span>${escapeHtml(tr("buyer_locked_label", "买方锁定"))}</span><strong>${escapeHtml(fmtSatAsBsv(buyerLocked))}</strong></div>
-    <div><span>${escapeHtml(tr("buyer_deposit_label", "买方保证金"))}</span><strong>${escapeHtml(fmtSatAsBsv(buyerDeposit))}</strong></div>
-    <div><span>${escapeHtml(tr("seller_locked_label", "卖方锁定"))}</span><strong>${escapeHtml(fmtSatAsBsv(sellerLocked))}</strong></div>
-    <div><span>${escapeHtml(tr("seller_deposit_label", "卖方保证金"))}</span><strong>${escapeHtml(fmtSatAsBsv(sellerDeposit))}</strong></div>
+    <div class="order-party-buyer"><span>${escapeHtml(tr("buyer_locked_label", "买方锁定"))}</span><strong>${escapeHtml(fmtSatAsBsv(buyerLocked))}</strong></div>
+    <div class="order-party-buyer"><span>${escapeHtml(tr("buyer_deposit_label", "买方保证金"))}</span><strong>${escapeHtml(fmtSatAsBsv(buyerDeposit))}</strong></div>
+    <div class="order-party-seller"><span>${escapeHtml(tr("seller_locked_label", "卖方锁定"))}</span><strong>${escapeHtml(fmtSatAsBsv(sellerLocked))}</strong></div>
+    <div class="order-party-seller"><span>${escapeHtml(tr("seller_deposit_label", "卖方保证金"))}</span><strong>${escapeHtml(fmtSatAsBsv(sellerDeposit))}</strong></div>
+    ${feeRows}
   </div>`;
 }
 
@@ -7499,19 +7888,19 @@ function handleSellerOrderActionButton(btn) {
     accept: tr("seller_order_action_accept_success", "订单确认成功"),
     ship: tr("seller_order_action_ship_success", "发货成功"),
     confirmRefund: tr("seller_order_action_refund_success", "退款确认成功"),
-    sellerCancel: tr("seller_order_action_cancel_success", "订单已取消，金额已退回买方"),
+    sellerCancel: tr("seller_order_action_cancel_success", "取消请求已广播，等待买家钱包完成退款取消"),
   };
   const progressTitleMap = {
     accept: tr("seller_order_accept_progress_title", "确认订单并广播"),
     ship: tr("seller_order_ship_progress_title", "发货并广播"),
     confirmRefund: tr("seller_order_refund_progress_title", "确认退款并广播"),
-    sellerCancel: tr("seller_order_cancel_progress_title", "取消订单并退款"),
+    sellerCancel: tr("seller_order_cancel_progress_title", "广播取消请求"),
   };
   const progressSummaryMap = {
     accept: tr("seller_order_accept_progress_summary", "正在生成确认订单交易并广播..."),
     ship: tr("seller_order_ship_progress_summary", "正在生成发货状态交易并广播..."),
     confirmRefund: tr("seller_order_refund_progress_summary", "正在生成退款结算交易并广播..."),
-    sellerCancel: tr("seller_order_cancel_progress_summary", "正在生成取消订单交易并将金额退回买方..."),
+    sellerCancel: tr("seller_order_cancel_progress_summary", "正在广播卖家取消请求，买家钱包同步后完成退款取消..."),
   };
   let executedAction = action;
   const launchAction = (resolvedAction, extraBody = null) => {
@@ -7533,9 +7922,9 @@ function handleSellerOrderActionButton(btn) {
     if (action === "sellerCancel") {
       const confirmed = await openConflictModal({
         title: tr("seller_order_cancel_confirm_title", "确认取消订单"),
-        message: tr("seller_order_cancel_confirm_message", "确认取消订单？这会生成链上取消交易，并将买方锁定金额退回钱包。"),
+        message: sellerCancelRequestText(order),
         cancelLabel: tr("btnKeepOrder", "保留订单"),
-        confirmLabel: tr("seller_order_cancel_confirm_button", "取消订单并退款"),
+        confirmLabel: tr("seller_order_cancel_confirm_button", "广播取消请求"),
         closeValue: null,
         cancelValue: false,
         confirmValue: true,
@@ -7971,7 +8360,11 @@ async function openOrderChat(orderId) {
   const order = state.orders.find((o) => o.id === orderId);
   if (!order) return;
   const product = state.products.find((p) => p.id === order.snapshot.product_id);
-  const walletId = resolveOrderChatWalletId(order);
+  const walletId = await resolveOrderChatWalletIdWithPubKeyFallback(order, resolveOrderChatWalletId(order));
+  if (!walletId || walletId === currentChatWalletId()) {
+    toast(tr("chat_product_peer_missing", "没有找到这个商品对应的聊天用户"));
+    return;
+  }
   await openChatThreadWindow({
     walletId,
     mode: "order",
@@ -7980,6 +8373,7 @@ async function openOrderChat(orderId) {
     title: trf("chat_order_title", { orderId: String(orderId || "") }, `Order chat ${String(orderId || "")}`),
     source: "order",
   });
+  clearOrderChatUnread(orderId);
 }
 
 async function openProductChat(productId, options = {}) {
@@ -10315,10 +10709,17 @@ async function uploadFileToCurrentDriveDir(file) {
   return uploadFilesToCurrentDriveDir(file ? [file] : []);
 }
 
-async function callAndRefresh(fn) {
+async function callAndRefresh(fn, options = {}) {
   try {
     const token = issueServerStateToken();
     const result = await fn();
+    if (typeof options?.beforeApply === "function") {
+      try {
+        options.beforeApply(result);
+      } catch (err) {
+        console.warn("[call-refresh-before-apply-failed]", err);
+      }
+    }
     if (result?.state) applyServerState(result.state, { token });
     renderAll();
     return result;

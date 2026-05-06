@@ -98,6 +98,7 @@ function validatePlacePayload(payload = {}, {
   expectedBuyerScriptHash = '',
   expectedJointScriptHash = '',
   minSellerDepositSats = 1000,
+  sellerDepositRateBps = 500,
 } = {}) {
   const p = payload && typeof payload === 'object' ? payload : {};
   if (Number(p.v || 0) !== 3) throw new Error('Unsupported order protocol version');
@@ -107,7 +108,7 @@ function validatePlacePayload(payload = {}, {
   const bs = requireInt(p.bs, 'buyer lock sats');
   if (bs !== ps + bd) throw new Error('Invalid buyer lock amount');
   if (bd !== Math.floor(ps * 0.2)) throw new Error('Invalid buyer deposit amount');
-  if (sd !== Math.max(Number(minSellerDepositSats || 1000), Math.floor(ps * 0.1))) {
+  if (sd !== Math.max(Number(minSellerDepositSats || 1000), Math.floor((ps * Math.max(0, Number(sellerDepositRateBps || 0))) / 10000))) {
     throw new Error('Invalid seller deposit amount');
   }
   if (expectedBuyerScriptHash && String(p.bh || '').trim() !== String(expectedBuyerScriptHash || '').trim()) {

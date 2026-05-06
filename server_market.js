@@ -61,6 +61,8 @@ const { createAuthBus } = require('./auth_bus');
 const { getOrCreateRuntimeSlot } = require('./runtime_module_slots');
 const { registerCatalogRoutes } = require('./catalog_routes');
 const { registerChatRoutes } = require('./chat_routes');
+const { createProjectNodeRendezvousService } = require('./project_node_rendezvous_service');
+const { createPublicNodeService } = require('./public_node_service');
 const { registerDriveRoutes } = require('./drive_browser_routes');
 const { ensureDataVersion } = require('./data_migration');
 const { createDriveCryptoService } = require('./drive_crypto_service');
@@ -560,6 +562,7 @@ let bhsDrivenSyncTickInFlight = false;
 let bhsDrivenSyncSubscribed = false;
 let syncRetrySubscribed = false;
 let eventLoopLagMonitorTimer = null;
+let publicNodeRefreshTimer = null;
 let stewardSyncNowTimer = null;
 let stewardSyncNowLastSentAt = 0;
 let legacyAnchorBackfillAttempted = false;
@@ -620,6 +623,7 @@ const pendingOrderAnchorProjectionRebuild = {
   eventCount: 0,
   txids: new Set(),
 };
+const pendingAutoSellerCancelCompletions = new Set();
 const P2P_SYNC_NODE_TRIES = Math.max(1, Number(process.env.BSV_MARKET_P2P_SYNC_NODE_TRIES || 4));
 const P2P_SYNC_CONNECT_TIMEOUT_MS = Math.max(1000, Number(process.env.BSV_MARKET_P2P_CONNECT_TIMEOUT_MS || 8000));
 const P2P_SYNC_GETHEADERS_TIMEOUT_MS = Math.max(1000, Number(process.env.BSV_MARKET_P2P_GETHEADERS_TIMEOUT_MS || 2000));
@@ -2391,6 +2395,37 @@ function handleWorkerWalletTxContextUpsert(msg, workerType = 'worker') {
       confirmed: row?.confirmed === true,
       childPid: Number(msg?.pid || 0),
     });
+    try {
+      const appliedToWalletIndex = typeof wallet.applyTxToSpvIndex === 'function'
+        ? wallet.applyTxToSpvIndex(rawtx, {
+          confirmed: row?.confirmed === true,
+          firstSeenHeight: Number(row?.proofBlockHeight || patch.proofBlockHeight || 0),
+        })
+        : false;
+      const spenderReconcile = typeof wallet.reconcileKnownConfirmedSpendersInSpvIndex === 'function'
+        ? wallet.reconcileKnownConfirmedSpendersInSpvIndex(null, {
+          source: `worker_tx_context:${workerType}`,
+        })
+        : null;
+      if (appliedToWalletIndex || Number(spenderReconcile?.removedUtxoCount || 0) > 0) {
+        appendMarketDebug('worker_wallet_tx_context_index_applied', {
+          workerType,
+          txid,
+          confirmed: row?.confirmed === true,
+          applied: Boolean(appliedToWalletIndex),
+          removedUtxoCount: Number(spenderReconcile?.removedUtxoCount || 0),
+        });
+        scheduleWalletProjectionRefresh('worker_wallet_tx_context_index_applied');
+        scheduleFrontendDomainBroadcast('wallet', 'worker_wallet_tx_context_index_applied', 60);
+      }
+    } catch (indexError) {
+      appendMarketDebug('worker_wallet_tx_context_index_apply_failed', {
+        workerType,
+        txid,
+        confirmed: row?.confirmed === true,
+        error: String(indexError?.message || indexError || 'wallet tx_context index apply failed'),
+      });
+    }
     const rawtxLower = rawtx.toLowerCase();
     if (!CHAIN_MARKER_HEXES.some((markerHex) => rawtxLower.includes(markerHex))) return;
     void handleObservedChainRawtx({
@@ -6071,7 +6106,7 @@ function buildProjectionStateFromSqlite(req = null) {
   if (!Array.isArray(state.recentRawtxs)) state.recentRawtxs = [];
   if (!state.localChanges || typeof state.localChanges !== 'object') state.localChanges = { seq: 1, queue: [] };
   if (!Array.isArray(state.localChanges.queue)) state.localChanges.queue = [];
-  state.orders = listActiveProtocolOrdersSync();
+  state.orders = listActiveProtocolOrdersSync().map((order) => hydrateMissingOrderChainRefsFromTransitions(migrateOrderModel(order)));
   const sessionMerchantId = req ? sanitizeMerchantId(deriveMerchantIdForSession(req)) : '';
   const profileMerchantId = sanitizeMerchantId(sqliteProfile?.merchantId || '');
   state.currentMerchantId = sessionMerchantId || profileMerchantId || state.currentMerchantId || 'm-local';
@@ -6760,7 +6795,17 @@ function compactOrderPlacePayload(payload = {}) {
 function computeOrderSellerDepositSatsForProtocol(priceSats) {
   const safePrice = Math.max(0, Math.floor(Number(priceSats || 0)));
   if (safePrice <= 0) return 0;
-  return Math.max(1000, Math.floor(safePrice * 0.10));
+  return Math.max(1000, Math.floor((safePrice * ORDER_SELLER_DEPOSIT_BPS) / 10000));
+}
+
+function computeOrderSellerLockSatsForProtocol(priceSats) {
+  return computeOrderSellerDepositSatsForProtocol(priceSats);
+}
+
+function getOrderSellerLockSats(order = {}) {
+  const explicitLock = Math.max(0, Number(order?.chain?.sellerLockSats || 0));
+  if (explicitLock > 0) return explicitLock;
+  return computeOrderSellerLockSatsForProtocol(Number(order?.funds?.priceSats || order?.snapshot?.price_snapshot || 0));
 }
 
 function deriveOrderJointRedeemScriptHexFromPayload(payload = {}) {
@@ -6949,6 +6994,7 @@ function getOrderPlacePrevoutFromTxContext(txid, vout = 0) {
       vout: safeVout,
       satoshis: Math.max(0, Number(output.satoshis || 0)),
       scriptHex: typeof output?.script?.toHex === 'function' ? String(output.script.toHex() || '') : '',
+      address: typeof output?.script?.toAddress === 'function' ? String(output.script.toAddress(wallet.NETWORK) || '').trim() : '',
       rawtx,
     };
   } catch (_) {
@@ -6956,10 +7002,23 @@ function getOrderPlacePrevoutFromTxContext(txid, vout = 0) {
   }
 }
 
+function getOrderAcceptPayloadFromAnchors(acceptTxid) {
+  const safeTxid = String(acceptTxid || '').trim().toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(safeTxid)) return {};
+  try {
+    const rows = loadAnchorEventsFromSqlite({ txid: safeTxid, eventTypes: ['order_accept'], limit: 1 });
+    const row = Array.isArray(rows) ? rows.find((item) => String(item?.eventType || '').trim() === 'order_accept') : null;
+    return row?.payload && typeof row.payload === 'object' ? row.payload : {};
+  } catch (_) {
+    return {};
+  }
+}
+
 async function ensureOrderActionTxContexts(order, action) {
   if (!order || typeof order !== 'object' || typeof wallet.ensureDirectParentTxContexts !== 'function') {
     return { requested: 0, inserted: 0, skipped: 0, missingTxids: [] };
   }
+  hydrateMissingOrderChainRefsFromTransitions(order);
   const safeAction = String(action || '').trim();
   const chain = order.chain && typeof order.chain === 'object' ? order.chain : {};
   const txids = [];
@@ -6998,6 +7057,90 @@ async function ensureOrderActionTxContexts(order, action) {
     missingTxids: Array.isArray(result?.missingTxids) ? result.missingTxids.slice(0, 8) : [],
   });
   return result;
+}
+
+function hydrateMissingOrderChainRefsFromTransitions(order) {
+  if (!order || typeof order !== 'object') return order;
+  if (!order.chain || typeof order.chain !== 'object') order.chain = {};
+  const transitions = Array.isArray(order.transitionIds) ? order.transitionIds : [];
+  const acceptTransition = transitions
+    .map((value) => String(value || '').trim())
+    .find((value) => /^order_accept:[0-9a-f]{64}$/i.test(value));
+  const acceptTxid = String(acceptTransition || '').replace(/^order_accept:/i, '').trim().toLowerCase();
+  if (/^[0-9a-f]{64}$/.test(acceptTxid) && !String(order.chain.sellerLockTxid || '').trim()) {
+    const acceptPayload = getOrderAcceptPayloadFromAnchors(acceptTxid);
+    order.chain.sellerLockTxid = acceptTxid;
+    order.chain.sellerLockVout = Math.max(0, Number(order.chain.sellerLockVout || getOrderPayloadValue(acceptPayload, 'sv', 'sellerLockVout') || 0));
+    const sellerLockPrevout = getOrderPlacePrevoutFromTxContext(acceptTxid, Number(order.chain.sellerLockVout || 0));
+    order.chain.sellerSettlementFeeTxid = String(
+      order.chain.sellerSettlementFeeTxid
+      || getOrderPayloadValue(acceptPayload, 'sfx', 'sellerSettlementFeeTxid')
+      || acceptTxid
+    ).trim();
+    order.chain.sellerSettlementFeeVout = Math.max(0, Number(
+      order.chain.sellerSettlementFeeVout
+      || getOrderPayloadValue(acceptPayload, 'sfv', 'sellerSettlementFeeVout')
+      || 0
+    ));
+    order.chain.sellerSettlementFeeSats = Math.max(0, Number(
+      order.chain.sellerSettlementFeeSats
+      || getOrderPayloadValue(acceptPayload, 'sfs', 'sellerSettlementFeeSats')
+      || 0
+    ));
+    order.chain.sellerShipAnchorFeeTxid = String(
+      order.chain.sellerShipAnchorFeeTxid
+      || getOrderPayloadValue(acceptPayload, 'shfx', 'sellerShipAnchorFeeTxid')
+      || ''
+    ).trim();
+    order.chain.sellerShipAnchorFeeVout = Math.max(0, Number(
+      order.chain.sellerShipAnchorFeeVout
+      || getOrderPayloadValue(acceptPayload, 'shfv', 'sellerShipAnchorFeeVout')
+      || 0
+    ));
+    order.chain.sellerShipAnchorFeeSats = Math.max(0, Number(
+      order.chain.sellerShipAnchorFeeSats
+      || getOrderPayloadValue(acceptPayload, 'shfs', 'sellerShipAnchorFeeSats')
+      || 0
+    ));
+    order.chain.sellerLockSats = Math.max(0, Number(
+      sellerLockPrevout?.satoshis
+      || getOrderPayloadValue(acceptPayload, 'ss', 'sellerLockSats')
+      || order.chain.sellerLockSats
+      || order?.funds?.sellerDepositSats
+      || computeOrderSellerLockSatsForProtocol(Number(order?.funds?.priceSats || order?.snapshot?.price_snapshot || 0))
+    ));
+    const sellerLockScriptHex = String(sellerLockPrevout?.scriptHex || '').trim();
+    if (sellerLockScriptHex) {
+      order.chain.sellerLockRedeemScriptHex = sellerLockScriptHex;
+      order.chain.jointRedeemScriptHex = sellerLockScriptHex;
+    } else if (!String(order.chain.sellerLockRedeemScriptHex || '').trim()) {
+      order.chain.sellerLockRedeemScriptHex = String(order.chain.jointRedeemScriptHex || '').trim();
+    }
+    if (!String(order.chain.jointRedeemScriptHex || '').trim()) {
+      order.chain.jointRedeemScriptHex = String(order.chain.sellerLockRedeemScriptHex || '').trim();
+    }
+    const sellerReceiveAddress = String(getOrderPayloadValue(acceptPayload, 'sr', 'sellerReceiveAddress') || '').trim();
+    const sellerRefundAddress = String(getOrderPayloadValue(acceptPayload, 'sf', 'sellerRefundAddress') || '').trim();
+    if (!String(order.chain.sellerReceiveAddress || '').trim() && sellerReceiveAddress) {
+      order.chain.sellerReceiveAddress = sellerReceiveAddress;
+    }
+    if (!String(order.chain.sellerRefundAddress || '').trim() && (sellerRefundAddress || sellerReceiveAddress)) {
+      order.chain.sellerRefundAddress = sellerRefundAddress || sellerReceiveAddress;
+    }
+    order.chain.sellerLockAcceptedAtHeight = Math.max(0, Number(
+      order.chain.sellerLockAcceptedAtHeight
+      || getOrderPayloadValue(acceptPayload, 'sah', 'sellerLockAcceptedAtHeight')
+      || 0
+    ));
+    appendMarketDebug('order_chain_refs_hydrated_from_transitions', {
+      orderId: String(order?.id || ''),
+      sellerLockTxid: acceptTxid,
+      sellerLockVout: Number(order.chain.sellerLockVout || 0),
+      prevoutHydrated: Boolean(sellerLockPrevout),
+      sellerAddressHydrated: Boolean(sellerReceiveAddress || sellerRefundAddress),
+    });
+  }
+  return order;
 }
 
 function hydrateOrderSuppliedTxContexts(order, action) {
@@ -7263,6 +7406,8 @@ function getOrderAnchorReplayRank(row = {}) {
       return 40;
     case 'order_refund_request':
       return 50;
+    case 'order_seller_cancel_request':
+      return 55;
     case 'order_cancel_before_ship':
     case 'order_cancel_before_accept':
       return 60;
@@ -7383,6 +7528,7 @@ function rebuildOrdersFromAnchors(state, _req = null, options = {}) {
 	            expectedBuyerScriptHash: orderProtocolV3.scriptHashHex(buyerLockRedeemScriptHex),
 	            expectedJointScriptHash: orderProtocolV3.scriptHashHex(jointRedeemScriptHex),
 	            minSellerDepositSats: 1000,
+	            sellerDepositRateBps: ORDER_SELLER_DEPOSIT_BPS,
 	          });
 	        }
 	      } catch (err) {
@@ -7428,7 +7574,7 @@ function rebuildOrdersFromAnchors(state, _req = null, options = {}) {
           sellerChatPubKey: String(getOrderPayloadValue(payload, 'sp', 'sellerChatPubKey') || '').trim(),
           sellerMerchantId: String(getOrderPayloadValue(payload, 'sm', 'sellerMerchantId', 'merchantId') || snapshot.merchant_id || '').trim(),
           buyerLockSats,
-          sellerLockSats: Math.max(0, Number(getOrderPayloadValue(payload, 'sd', 'sellerDepositSats') || computeOrderSellerDepositSatsForProtocol(Number(getOrderPayloadValue(payload, 'ps', 'priceSats') || snapshot.price_snapshot || 0)))),
+          sellerLockSats: Math.max(0, Number(getOrderPayloadValue(payload, 'ss', 'sellerLockSats') || computeOrderSellerLockSatsForProtocol(Number(getOrderPayloadValue(payload, 'ps', 'priceSats') || snapshot.price_snapshot || 0)))),
           timeoutAt: Math.max(0, Number(getOrderPayloadValue(payload, 'to', 'timeoutAt') || 0)),
           stateAnchorTxid: String(row?.txid || '').trim(),
           shipConfirmed: false,
@@ -7486,7 +7632,11 @@ function rebuildOrdersFromAnchors(state, _req = null, options = {}) {
         ).trim();
         next.chain.sellerLockTxid = sellerLockTxidForPayload;
         next.chain.sellerLockVout = sellerLockVoutForPayload;
-        next.chain.sellerLockSats = Math.max(0, Number(getOrderPayloadValue(payload, 'ss', 'sellerLockSats') || existing?.chain?.sellerLockSats || existing?.funds?.sellerDepositSats || 0));
+        next.chain.sellerLockSats = Math.max(0, Number(
+          getOrderPayloadValue(payload, 'ss', 'sellerLockSats')
+          || existing?.chain?.sellerLockSats
+          || computeOrderSellerLockSatsForProtocol(Number(existing?.funds?.priceSats || existing?.snapshot?.price_snapshot || 0))
+        ));
         next.chain.sellerLockRedeemScriptHex = sellerLockScriptHex;
         next.chain.jointRedeemScriptHex = sellerLockScriptHex;
         next.chain.sellerReceiveAddress = String(getOrderPayloadValue(payload, 'sr', 'sellerReceiveAddress') || existing?.chain?.sellerReceiveAddress || '').trim();
@@ -7532,22 +7682,41 @@ function rebuildOrdersFromAnchors(state, _req = null, options = {}) {
 	          return;
 	        }
 	      }
+      if (eventType === 'order_seller_cancel_request') {
+        if (String(existing?.status || '') !== ORDER_STATUS.PLACED) return;
+        const requested = migrateOrderModel({
+          ...existing,
+          transitionIds: Array.from(new Set([...(Array.isArray(existing.transitionIds) ? existing.transitionIds : []), transitionId])),
+          chain: {
+            ...(existing.chain || {}),
+            sellerCancelRequestTxid: String(row?.txid || '').trim(),
+            sellerCancelRequestedAt: updatedAt,
+            sellerCancelReasonCode: String(getOrderPayloadValue(payload, 'cr', 'sellerCancelReasonCode') || 'seller_cancel_before_accept').trim(),
+          },
+          tip: String(actionMeta.tip || existing.tip || '').trim(),
+          updatedAt,
+        });
+        orderMap.set(orderId, requested);
+        return;
+      }
 	      if (eventType === 'order_ship' && String(existing?.status || '') === ORDER_STATUS.SHIPPED) {
         const shipConfirmed = existing?.chain?.shipConfirmed === true || row?.confirmed === true;
+        const refreshedBase = hydrateMissingOrderChainRefsFromTransitions(inferOrderAcceptFromShipPayload(existing, payload, updatedAt));
 	        const refreshed = migrateOrderModel({
-	          ...existing,
+	          ...refreshedBase,
 	          chain: {
-	            ...(existing.chain || {}),
-	            shipTxid: String(getOrderPayloadValue(payload, 'hx', 'txid') || existing?.chain?.shipTxid || row?.txid || '').trim(),
+	            ...(refreshedBase.chain || {}),
+	            shipTxid: String(getOrderPayloadValue(payload, 'hx', 'txid') || refreshedBase?.chain?.shipTxid || row?.txid || '').trim(),
 	            shipConfirmed,
 	            shipConfirmedHeight: shipConfirmed
-	              ? Math.max(0, Number(row?.height || existing?.chain?.shipConfirmedHeight || 0))
+	              ? Math.max(0, Number(row?.height || refreshedBase?.chain?.shipConfirmedHeight || 0))
 	              : 0,
-	            shipmentInfo: String(getOrderPayloadValue(payload, 'si', 'shipmentInfo') || existing?.chain?.shipmentInfo || '').trim().slice(0, 100),
-	            completedDraftRawtx: String(getOrderPayloadValue(payload, 'sg', 'completedDraftRawtx') || existing?.chain?.completedDraftRawtx || '').trim(),
+	            shipmentInfo: String(getOrderPayloadValue(payload, 'si', 'shipmentInfo') || refreshedBase?.chain?.shipmentInfo || '').trim().slice(0, 100),
+	            completedDraftRawtx: String(getOrderPayloadValue(payload, 'sg', 'completedDraftRawtx') || refreshedBase?.chain?.completedDraftRawtx || '').trim(),
+	            completedSettlementPackage: String(getOrderPayloadValue(payload, 'sp', 'completedSettlementPackage', 'settlementSignaturePackage') || refreshedBase?.chain?.completedSettlementPackage || '').trim(),
 	          },
 	          updatedAt,
-	          tip: String(actionMeta.tip || existing.tip || '').trim(),
+	          tip: String(actionMeta.tip || refreshedBase.tip || '').trim(),
 	        });
 	        orderMap.set(orderId, refreshed);
 	        return;
@@ -7566,6 +7735,7 @@ function rebuildOrdersFromAnchors(state, _req = null, options = {}) {
         next.chain.shipConfirmedHeight = row?.confirmed === true ? Math.max(0, Number(row?.height || 0)) : 0;
         next.chain.shipmentInfo = String(getOrderPayloadValue(payload, 'si', 'shipmentInfo') || existing?.chain?.shipmentInfo || '').trim().slice(0, 100);
         next.chain.completedDraftRawtx = String(getOrderPayloadValue(payload, 'sg', 'completedDraftRawtx') || existing?.chain?.completedDraftRawtx || '').trim();
+        next.chain.completedSettlementPackage = String(getOrderPayloadValue(payload, 'sp', 'completedSettlementPackage', 'settlementSignaturePackage') || existing?.chain?.completedSettlementPackage || '').trim();
       } else if (eventType === 'order_confirm') {
         next.chain.settleTxid = String(getOrderPayloadValue(payload, 'fx', 'txid') || row?.txid || '').trim();
         next.chain.completedSettlementTxid = next.chain.settleTxid;
@@ -7654,6 +7824,7 @@ function rebuildOrdersFromAnchors(state, _req = null, options = {}) {
         next.chain.shipConfirmedHeight = row?.confirmed === true ? Math.max(0, Number(row?.height || 0)) : 0;
         next.chain.shipmentInfo = String(getOrderPayloadValue(payload, 'si', 'shipmentInfo') || existing?.chain?.shipmentInfo || '').trim().slice(0, 100);
         next.chain.completedDraftRawtx = String(getOrderPayloadValue(payload, 'sg', 'completedDraftRawtx') || existing?.chain?.completedDraftRawtx || '').trim();
+        next.chain.completedSettlementPackage = String(getOrderPayloadValue(payload, 'sp', 'completedSettlementPackage', 'settlementSignaturePackage') || existing?.chain?.completedSettlementPackage || '').trim();
       } else if (eventType === 'order_confirm') {
         next.chain.settleTxid = String(getOrderPayloadValue(payload, 'fx', 'txid') || row?.txid || '').trim();
         next.chain.completedSettlementTxid = next.chain.settleTxid;
@@ -7710,6 +7881,110 @@ function rebuildOrdersFromAnchors(state, _req = null, options = {}) {
   return state.orders;
 }
 
+function isLocalBuyerForOrder(order = {}, state = null, req = null) {
+  const identity = getOrderWalletIdentity(state || {}, req || {});
+  const receiveAddress = (() => {
+    try { return String(wallet.getReceiveAddress() || '').trim(); } catch (_) { return ''; }
+  })();
+  const chatPubKey = (() => {
+    try {
+      const pwd = getActiveWalletPassword(req || buildRuntimeAuthReq());
+      return String(wallet.deriveChatPublicKeyFromMnemonic(wallet.getMnemonicFromPassword(pwd)) || '').trim();
+    } catch (_) {
+      return '';
+    }
+  })();
+  return Boolean(
+    (order?.buyerWalletId && identity.walletId && String(order.buyerWalletId) === String(identity.walletId))
+    || (order?.chain?.buyerRefundAddress && receiveAddress && String(order.chain.buyerRefundAddress) === receiveAddress)
+    || (order?.chain?.buyerChatPubKey && chatPubKey && String(order.chain.buyerChatPubKey) === chatPubKey)
+  );
+}
+
+async function autoCompleteSellerCancelRequests(req, state, orders = []) {
+  if (!req?.session?.walletPassword && !getRuntimeWalletPassword()) return;
+  const candidates = (Array.isArray(orders) ? orders : [])
+    .filter((order) => String(order?.status || '') === ORDER_STATUS.PLACED)
+    .filter((order) => String(order?.chain?.sellerCancelRequestTxid || '').trim())
+    .filter((order) => !String(order?.chain?.cancelTxid || '').trim())
+    .filter((order) => isLocalBuyerForOrder(order, state, req));
+  if (!candidates.length) return;
+  const mnemonic = wallet.getMnemonicFromPassword(getActiveWalletPassword(req));
+  for (const order of candidates) {
+    const orderId = String(order?.id || '').trim();
+    if (!orderId || pendingAutoSellerCancelCompletions.has(orderId)) continue;
+    pendingAutoSellerCancelCompletions.add(orderId);
+    try {
+      appendMarketDebug('order_auto_seller_cancel_complete_start', {
+        orderId,
+        sellerCancelRequestTxid: String(order?.chain?.sellerCancelRequestTxid || ''),
+      });
+      const cancelTx = wallet.buildOrderTimeoutCancelTx({
+        mnemonic,
+        buyerLockTxid: String(order?.chain?.buyerLockTxid || '').trim(),
+        buyerLockVout: Number(order?.chain?.buyerLockVout || 0),
+        buyerLockSats: Number(order?.funds?.buyerLockedSats || order?.chain?.buyerLockSats || 0),
+        buyerLockRedeemScriptHex: String(order?.chain?.buyerLockRedeemScriptHex || '').trim(),
+        buyerRefundAddress: String(order?.chain?.buyerRefundAddress || '').trim(),
+        timeoutAt: 0,
+      });
+      const cancelBroadcast = await broadcastAndTrackOrderRawtx(req, state, {
+        rawtx: cancelTx.rawtx,
+        source: 'order_cancel_before_accept_auto',
+        reservationId: `order_cancel_before_accept:${orderId}`,
+        reservationType: 'order_cancel_before_accept',
+        note: `order_cancel_before_accept:${orderId}`,
+        requireVisibility: true,
+      });
+      const localTxid = String(cancelBroadcast?.txid || cancelTx.txid || '').trim();
+      order.chain = {
+        ...(order.chain || {}),
+        cancelTxid: localTxid,
+        stateAnchorTxid: localTxid,
+        autoSellerCancelCompletedAt: new Date().toISOString(),
+      };
+      const actorKeypair = wallet.deriveChatKeypairFromMnemonic(mnemonic);
+      const actionMeta = ORDER_ACTION_META.buyerCancelBeforeAccept;
+      const payload = buildOrderActionAnchorPayload(order, actionMeta, localTxid, {
+        role: 'buyer',
+        pubKey: String(actorKeypair.chatPubKey || '').trim(),
+        privateKey: actorKeypair.privateKey,
+      });
+      const anchor = await tryAnchorEvent(req, state, actionMeta.eventType, payload, {
+        includeUnconfirmed: true,
+        requireVisibility: true,
+        notifyAddresses: [String(order?.chain?.sellerRefundAddress || '').trim()].filter(Boolean),
+      });
+      if (anchor?.error) throw new Error(String(anchor.error || 'order cancel anchor failed'));
+      const next = applyTransition(order, actionMeta.machineAction, {
+        transitionId: `${actionMeta.eventType}:${localTxid}`,
+        config: orderMachineConfig(),
+      });
+      next.chain.cancelTxid = localTxid;
+      next.chain.stateAnchorTxid = String(anchor?.txid || localTxid || '').trim();
+      next.tip = actionMeta.tip;
+      next.updatedAt = new Date().toISOString();
+      await orderDomain.emitOrderUpsert(next, {
+        producer: 'orders_auto_seller_cancel_complete',
+        dedupeKey: `order.upsert:${orderId}:${next.status}:${localTxid}`,
+      });
+      persistOrderProjectionRowsSync([migrateOrderModel(next)], 'orders_auto_seller_cancel_complete');
+      appendMarketDebug('order_auto_seller_cancel_complete_done', {
+        orderId,
+        cancelTxid: localTxid,
+        anchorTxid: String(anchor?.txid || ''),
+      });
+    } catch (error) {
+      appendMarketDebug('order_auto_seller_cancel_complete_failed', {
+        orderId,
+        error: String(error?.message || error || 'auto seller cancel complete failed'),
+      });
+    } finally {
+      pendingAutoSellerCancelCompletions.delete(orderId);
+    }
+  }
+}
+
 function scheduleOrderAnchorProjectionRebuild(reason = 'order_anchor_projection', meta = {}) {
   pendingOrderAnchorProjectionRebuild.reason = String(reason || pendingOrderAnchorProjectionRebuild.reason || 'order_anchor_projection');
   pendingOrderAnchorProjectionRebuild.eventCount += Math.max(0, Number(meta?.eventCount || 0));
@@ -7734,6 +8009,11 @@ function scheduleOrderAnchorProjectionRebuild(reason = 'order_anchor_projection'
       const orders = rebuildOrdersFromAnchors(state, req, {
         includePending: allowPendingReplay,
         includeUnconfirmedActionAnchors: allowPendingReplay,
+      });
+      void autoCompleteSellerCancelRequests(req, state, orders).catch((error) => {
+        appendMarketDebug('order_auto_seller_cancel_complete_unhandled', {
+          error: String(error?.message || error || 'auto seller cancel completion failed'),
+        });
       });
       scheduleMappedFrontendBroadcast('order.anchor.projection', 'order_anchor_projection_rebuilt', 50, true, snapshot.reason, {
         eventCount: snapshot.eventCount,
@@ -7781,9 +8061,14 @@ function stateHasLiteProjectionRows(state = null) {
 function buildProjectionBackedState(req = null) {
   const runtimeState = getRuntimeProjectionStateSnapshot(req);
   if (runtimeState && runtimeProjectionStateHydrated) {
-    if (!req?.session?.walletPassword && !runtimeProjectionNeedsSqliteHydrate(runtimeState)) return runtimeState;
+    const effectiveReq = req?.session?.walletPassword ? req : buildRuntimeAuthReq();
+    if (!effectiveReq?.session?.walletPassword && !runtimeProjectionNeedsSqliteHydrate(runtimeState)) return runtimeState;
+    if (effectiveReq?.session?.walletPassword && Array.isArray(runtimeState.orders)) {
+      void autoCompleteSellerCancelRequests(effectiveReq, runtimeState, runtimeState.orders).catch(() => {});
+    }
     const sqliteState = buildProjectionStateFromSqlite(req);
     const preferredState = chooseRicherStateSnapshot(runtimeState, sqliteState, 'projection_state_sqlite_rehydrate');
+    void autoCompleteSellerCancelRequests(effectiveReq, preferredState, preferredState.orders).catch(() => {});
     commitCoreRuntimeProjectionState(preferredState, { reason: 'projection_state_sqlite_rehydrate', hydrated: true, req });
     return preferredState;
   }
@@ -7798,6 +8083,7 @@ function buildProjectionBackedState(req = null) {
   const preferredState = runtimeState
     ? chooseRicherStateSnapshot(runtimeState, state, 'projection_state_sqlite_hydrate')
     : state;
+  void autoCompleteSellerCancelRequests(req || buildRuntimeAuthReq(), preferredState, preferredState.orders).catch(() => {});
   commitCoreRuntimeProjectionState(preferredState, { reason: 'projection_state_sqlite_hydrate', hydrated: true, req });
   return preferredState;
 }
@@ -7974,6 +8260,79 @@ function getChatRouteStateService() {
     normalizeChatHttpEndpoint,
   }));
 }
+
+function getProjectNodeRendezvousService() {
+  return getOrCreateRuntimeSlot('projectNodeRendezvousService', () => createProjectNodeRendezvousService({
+    presenceTtlMs: Number(process.env.BSV_MARKET_RENDEZVOUS_PRESENCE_TTL_MS || 120000),
+    signalTtlMs: Number(process.env.BSV_MARKET_RENDEZVOUS_SIGNAL_TTL_MS || 60000),
+  }));
+}
+
+function getPublicNodeService() {
+  return getOrCreateRuntimeSlot('publicNodeService', () => createPublicNodeService({
+    os,
+    wallet,
+    appendDebug: appendMarketDebug,
+    getRuntimeAuthSnapshot,
+    getSelfChatIdentity,
+  }));
+}
+
+function getPublicNodeIceServers() {
+  return getPublicNodeService().getIceServers();
+}
+
+async function refreshPublicNodeStatus(req = null, options = {}) {
+  const state = buildChatServiceState(req || buildRuntimeAuthReq(), { includeLocalState: false });
+  ensureChatState(state, req || buildRuntimeAuthReq());
+  const status = await getPublicNodeService().refresh(state, req || buildRuntimeAuthReq(), options);
+  if (status?.publicNode === true && status?.capability?.signalEndpoint) {
+    try {
+      getProjectNodeRendezvousService().announcePresence({
+        walletId: String(state?.chatIdentity?.self?.walletId || ''),
+        merchantId: String(state?.chatIdentity?.self?.merchantId || ''),
+        chatPubKey: String(state?.chatIdentity?.self?.chatPubKey || ''),
+        publicEndpoint: String(status.capability.signalEndpoint || ''),
+        capabilities: status.capability.capabilities || {},
+        publicNode: status.capability,
+      }, {
+        observedAddress: String(status?.capability?.publicIp || ''),
+        seenBy: 'self_public_node_refresh',
+      });
+    } catch (err) {
+      appendMarketDebug('public_node_self_announce_failed', {
+        message: String(err?.message || err || ''),
+      });
+    }
+  }
+  return status;
+}
+
+function getPublicNodeStatus() {
+  return getPublicNodeService().getStatus();
+}
+
+function startPublicNodeRefreshLoop() {
+  if (publicNodeRefreshTimer || process.env.BSV_MARKET_DISABLE_PUBLIC_NODE_AUTO === '1') return;
+  const intervalMs = Math.max(30000, Number(process.env.BSV_MARKET_PUBLIC_NODE_REFRESH_INTERVAL_MS || 120000));
+  const run = () => {
+    refreshPublicNodeStatus(buildRuntimeAuthReq(), { skipExternal: false }).catch((err) => {
+      appendMarketDebug('public_node_periodic_refresh_failed', {
+        message: String(err?.message || err || ''),
+      });
+    });
+  };
+  publicNodeRefreshTimer = setInterval(run, intervalMs);
+  publicNodeRefreshTimer.unref?.();
+  setTimeout(run, Math.min(15000, intervalMs)).unref?.();
+}
+
+function stopPublicNodeRefreshLoop() {
+  if (!publicNodeRefreshTimer) return;
+  clearInterval(publicNodeRefreshTimer);
+  publicNodeRefreshTimer = null;
+}
+
 function getChatRuntimeStore() {
   return getOrCreateRuntimeSlot('chatRuntimeStore', () => createChatRuntimeStore({
     ensureChatState,
@@ -11844,6 +12203,16 @@ const ORDER_ACTION_META = Object.freeze({
     tip: 'order_tip_seller_cancel',
     eventType: 'order_cancel_before_ship',
   },
+  buyerCancelBeforeAccept: {
+    machineAction: 'cancel_by_seller',
+    tip: 'order_tip_seller_cancel',
+    eventType: 'order_cancel_before_accept',
+  },
+  sellerCancelRequest: {
+    machineAction: 'seller_cancel_request',
+    tip: 'order_tip_seller_cancel_request',
+    eventType: 'order_seller_cancel_request',
+  },
   accept: {
     machineAction: 'accept',
     tip: 'order_tip_accept',
@@ -11875,6 +12244,10 @@ const ORDER_ACTION_META = Object.freeze({
     eventType: 'order_timeout_cancel',
   },
 });
+
+function isStandardBuyerLockScriptHex(scriptHex = '') {
+  return /^76a914[0-9a-f]{40}88ac$/i.test(String(scriptHex || '').trim());
+}
 
 function parseActionConfirmations(reqBody = {}, actionMeta = {}) {
   return 0;
@@ -12006,7 +12379,7 @@ function buildOrderActionAnchorPayload(order, actionMeta, txid = '', actorSignat
   if (eventType === 'order_accept') {
     payload.sx = String(chain?.sellerLockTxid || '').trim();
     payload.sv = Math.max(0, Number(chain?.sellerLockVout || 0));
-    payload.ss = Math.max(0, Number(chain?.sellerLockSats || safeOrder?.funds?.sellerDepositSats || 0));
+    payload.ss = Math.max(0, Number(chain?.sellerLockSats || computeOrderSellerLockSatsForProtocol(Number(safeOrder?.funds?.priceSats || snapshot?.price_snapshot || 0))));
     payload.sh = orderProtocolV3.scriptHashHex(String(chain?.sellerLockRedeemScriptHex || '').trim());
     payload.sr = String(chain?.sellerReceiveAddress || '').trim();
     payload.sf = String(chain?.sellerRefundAddress || '').trim();
@@ -12019,7 +12392,9 @@ function buildOrderActionAnchorPayload(order, actionMeta, txid = '', actorSignat
     payload.sah = Math.max(0, Number(chain?.sellerLockAcceptedAtHeight || 0));
   } else if (eventType === 'order_ship') {
     payload.hx = String(txid || chain?.shipTxid || '').trim();
-    payload.sg = String(chain?.completedDraftRawtx || '').trim();
+    const settlementPackage = String(chain?.completedSettlementPackage || chain?.settlementSignaturePackage || '').trim();
+    if (settlementPackage) payload.sp = settlementPackage;
+    else payload.sg = String(chain?.completedDraftRawtx || '').trim();
     const shipmentInfo = String(chain?.shipmentInfo || '').trim();
     if (shipmentInfo) payload.si = shipmentInfo.slice(0, 100);
   } else if (eventType === 'order_confirm') {
@@ -12029,6 +12404,9 @@ function buildOrderActionAnchorPayload(order, actionMeta, txid = '', actorSignat
     payload.rd = String(chain?.refundDraftRawtx || '').trim();
   } else if (eventType === 'order_refund_confirm') {
     payload.fx = String(txid || chain?.settleTxid || '').trim();
+  } else if (eventType === 'order_seller_cancel_request') {
+    payload.cr = String(chain?.sellerCancelReasonCode || 'seller_cancel_before_accept').trim();
+    if (chain?.cancelTxid) payload.cx = String(chain.cancelTxid || '').trim();
 	  } else if (eventType === 'order_cancel_before_ship' || eventType === 'order_cancel_before_accept' || eventType === 'order_timeout_cancel') {
     payload.cx = String(txid || chain?.cancelTxid || '').trim();
   }
@@ -12063,7 +12441,15 @@ function refreshRefundRequestReplay(existing, payload, row, updatedAt, transitio
 }
 
 function getOrderShipDraftRefs(payload = {}) {
-  const rawtx = String(getOrderPayloadValue(payload, 'sg', 'completedDraftRawtx') || '').trim();
+  let rawtx = String(getOrderPayloadValue(payload, 'sg', 'completedDraftRawtx') || '').trim();
+  const settlementPackage = String(getOrderPayloadValue(payload, 'sp', 'completedSettlementPackage', 'settlementSignaturePackage') || '').trim();
+  if (!rawtx && settlementPackage && typeof wallet.rawtxFromOrderSettlementSignaturePackage === 'function') {
+    try {
+      rawtx = wallet.rawtxFromOrderSettlementSignaturePackage(settlementPackage);
+    } catch (_) {
+      rawtx = '';
+    }
+  }
   if (!rawtx || !bsv || typeof bsv.Transaction !== 'function') return null;
   try {
     const tx = new bsv.Transaction(rawtx);
@@ -12192,7 +12578,7 @@ function inferOrderAcceptFromShipPayload(existingOrder, payload = {}, updatedAt 
   });
   next.chain.sellerLockTxid = refs.sellerLockTxid;
   next.chain.sellerLockVout = 0;
-  next.chain.sellerLockSats = Math.max(0, Number(existing?.chain?.sellerLockSats || existing?.funds?.sellerDepositSats || 0));
+  next.chain.sellerLockSats = Math.max(0, Number(existing?.chain?.sellerLockSats || computeOrderSellerLockSatsForProtocol(Number(existing?.funds?.priceSats || existing?.snapshot?.price_snapshot || 0))));
   next.chain.sellerLockRedeemScriptHex = String(existing?.chain?.sellerLockRedeemScriptHex || existing?.chain?.jointRedeemScriptHex || '').trim();
   next.chain.jointRedeemScriptHex = String(next.chain.sellerLockRedeemScriptHex || existing?.chain?.jointRedeemScriptHex || '').trim();
   next.tip = 'order_tip_accept';
@@ -12778,21 +13164,13 @@ function collectOrderLinkedOutpointsForAnchorExclusion(state, options = {}) {
     const outpoint = `${safeTxid}:${safeVout}`;
     if (!allowed.has(outpoint)) reserved.add(outpoint);
   };
-  const addTxOutputs = (txid, limit = 12) => {
-    const safeTxid = String(txid || '').trim().toLowerCase();
-    if (!/^[0-9a-f]{64}$/.test(safeTxid)) return;
-    const ctx = typeof wallet.getTxContextByTxid === 'function' ? wallet.getTxContextByTxid(safeTxid) : null;
-    const rawtx = String(ctx?.rawtx || ctx?.rawtx_hex || '').trim();
-    if (!rawtx || !bsv || typeof bsv.Transaction !== 'function') return;
-    try {
-      const tx = new bsv.Transaction(rawtx);
-      const outputs = Array.isArray(tx.outputs) ? tx.outputs : [];
-      const count = Math.min(outputs.length, Math.max(0, Number(limit || outputs.length)));
-      for (let vout = 0; vout < count; vout += 1) {
-        const outpoint = `${safeTxid}:${vout}`;
-        if (!allowed.has(outpoint)) reserved.add(outpoint);
-      }
-    } catch (_) {}
+  const addKnownProtocolOutpoints = (chain = {}) => {
+    addOutpoint(chain.placeTxid || chain.buyerLockTxid, Number(chain.buyerLockVout || 0));
+    addOutpoint(chain.sellerLockTxid, Number(chain.sellerLockVout || 0));
+    addOutpoint(chain.sellerSettlementFeeTxid || chain.sellerLockTxid, Number(chain.sellerSettlementFeeVout || 0));
+    if (String(chain.sellerShipAnchorFeeTxid || '').trim()) {
+      addOutpoint(chain.sellerShipAnchorFeeTxid, Number(chain.sellerShipAnchorFeeVout || 0));
+    }
   };
   for (const order of (Array.isArray(state?.orders) ? state.orders : [])) {
     const chain = order?.chain && typeof order.chain === 'object' ? order.chain : {};
@@ -12814,16 +13192,10 @@ function collectOrderLinkedOutpointsForAnchorExclusion(state, options = {}) {
         const safeTxid = String(txid || '').trim().toLowerCase();
         if (/^[0-9a-f]{64}$/.test(safeTxid)) currentOrderTxids.add(safeTxid);
       }
-      addTxOutputs(chain.placeTxid || chain.buyerLockTxid);
-      addTxOutputs(chain.sellerLockTxid);
-      addOutpoint(chain.placeTxid || chain.buyerLockTxid, Number(chain.buyerLockVout || 0));
-      addOutpoint(chain.sellerLockTxid, Number(chain.sellerLockVout || 0));
-      addOutpoint(chain.sellerSettlementFeeTxid || chain.sellerLockTxid, Number(chain.sellerSettlementFeeVout || 0));
+      addKnownProtocolOutpoints(chain);
       continue;
     }
-    for (const txid of orderTxids) {
-      addTxOutputs(txid);
-    }
+    addKnownProtocolOutpoints(chain);
   }
   if (typeof wallet.listTxContexts === 'function') {
     for (const row of wallet.listTxContexts({ order: 'recent', limit: 3000 })) {
@@ -12832,7 +13204,8 @@ function collectOrderLinkedOutpointsForAnchorExclusion(state, options = {}) {
       if (!/^order_/i.test(kind) && !/^order_/i.test(source)) continue;
       const txid = String(row?.txid || '').trim().toLowerCase();
       if (currentOrderTxids.has(txid)) continue;
-      addTxOutputs(row?.txid);
+      if (kind === 'order_place' || source === 'order_place_lock') addOutpoint(row?.txid, 0);
+      if (kind === 'order_accept' || source === 'order_accept_seller_lock') addOutpoint(row?.txid, 0);
     }
   }
   return Array.from(reserved);
@@ -19060,8 +19433,14 @@ function buildWalletUiBundle(req, options = {}) {
               txid: String(row?.txid || ''),
               kind: String(row?.kind || ''),
               amountSat: Math.max(0, Number(row?.amountSat || 0)),
+              netSat: Number(row?.netSat || 0),
               confirmed: row?.confirmed === true,
               label: String(row?.label || ''),
+              transactionType: String(row?.transactionType || ''),
+              transactionTypeLabel: String(row?.transactionTypeLabel || ''),
+              orderBreakdown: row?.orderBreakdown && typeof row.orderBreakdown === 'object'
+                ? { ...row.orderBreakdown }
+                : null,
               note: String(row?.note || ''),
               lastSeenAt: String(row?.lastSeenAt || ''),
             }))
@@ -20164,6 +20543,23 @@ function buildApiStateLiteSnapshot(req, options = {}) {
       ].join(':'))
       .join('|');
   })();
+  const orderCacheKey = (() => {
+    const orders = Array.isArray(effectiveStateForCacheKey?.orders)
+      ? effectiveStateForCacheKey.orders
+      : [];
+    return orders
+      .map((order) => [
+        String(order?.id || ''),
+        String(order?.status || ''),
+        String(order?.tip || ''),
+        String(order?.chain?.stateAnchorTxid || ''),
+        String(order?.chain?.sellerLockTxid || ''),
+        String(order?.chain?.refundRequestTxid || ''),
+        String(order?.chain?.settleTxid || ''),
+        String(order?.updatedAt || ''),
+      ].join(':'))
+      .join('|');
+  })();
   const cacheKey = JSON.stringify({
       loggedIn: hasWalletSession,
       runtimeProjectionStateVersion,
@@ -20173,6 +20569,7 @@ function buildApiStateLiteSnapshot(req, options = {}) {
       catalogSyncEnabled: effectiveStateForCacheKey?.steward?.catalogSyncEnabled !== false,
       localChangesSeq: Number(effectiveStateForCacheKey?.localChanges?.seq || 1),
       localChanges: localChangeCacheKey,
+      orders: orderCacheKey,
   });
   const nowMs = Date.now();
   if (
@@ -20699,7 +21096,7 @@ function fail(res, message, status = 400) {
   const rid = String(req?.requestId || '');
   const code = status >= 500
     ? 'INTERNAL_ERROR'
-    : (status === 401 ? 'AUTH_REQUIRED' : (status === 404 ? 'NOT_FOUND' : 'BAD_REQUEST'));
+    : (status === 401 ? 'AUTH_REQUIRED' : (status === 404 ? 'NOT_FOUND' : (status === 409 ? 'CONFLICT' : 'BAD_REQUEST')));
   appendMarketDebug('api_fail', {
     rid,
     method: String(req?.method || ''),
@@ -22957,7 +23354,7 @@ app.post('/api/orders/place', async (req, res) => {
       jointRedeemScriptHex: deriveOrderJointRedeemScriptHexFromPayload(payloadForChain),
       jointScriptHash: String(payloadForChain?.jh || '').trim(),
       sellerMerchantId: String(product.merchantId || '').trim(),
-      sellerLockSats: computeOrderSellerDepositSatsForProtocol(Number(buyerLockTx.priceSats || 0)),
+      sellerLockSats: computeOrderSellerLockSatsForProtocol(Number(buyerLockTx.priceSats || 0)),
       timeoutAt,
       stateAnchorTxid: placeBroadcast.txid,
     },
@@ -23007,11 +23404,16 @@ app.post('/api/orders/:id/action', async (req, res) => {
   }
   if (!order) return fail(res, 'Order not found', 404);
   migrateOrderModel(order);
+  hydrateMissingOrderChainRefsFromTransitions(order);
 
   const action = String(req.body?.action || '');
   if (action === 'cancel') return fail(res, 'Buyer cancellation is disabled in this release');
-  const actionMeta = ORDER_ACTION_META[action];
+  let actionMeta = ORDER_ACTION_META[action];
   if (!actionMeta) return fail(res, 'Unsupported action');
+  const sellerCancelUsesRequestFlow = action === 'sellerCancel' && isStandardBuyerLockScriptHex(order?.chain?.buyerLockRedeemScriptHex || '');
+  if (sellerCancelUsesRequestFlow) {
+    actionMeta = ORDER_ACTION_META.sellerCancelRequest;
+  }
   const actionSuccessMessage = {
     accept: 'order_action_accept_success',
     ship: 'order_action_ship_success',
@@ -23126,7 +23528,7 @@ app.post('/api/orders/:id/action', async (req, res) => {
         || req.body?.refreshRefundDraft === true
         || req.body?.refreshDraft === true
       );
-    if (!refreshRefundRequestDraft) {
+    if (!refreshRefundRequestDraft && actionMeta.machineAction !== 'seller_cancel_request') {
       applyTransition(order, actionMeta.machineAction, {
         transitionId,
         config: orderMachineConfig(),
@@ -23183,7 +23585,7 @@ app.post('/api/orders/:id/action', async (req, res) => {
         order.chain.sellerSettlementFeeTxid = '';
         order.chain.sellerSettlementFeeVout = 2;
         order.chain.sellerShipAnchorFeeTxid = '';
-        order.chain.sellerShipAnchorFeeVout = 3;
+        order.chain.sellerShipAnchorFeeVout = -1;
         order.chain.sellerLockAcceptedAtHeight = Math.max(0, Number(state?.sync?.localHeight || 0));
         const confirmPayloadForReserve = buildOrderActionAnchorPayload(order, { eventType: 'order_confirm' }, '', null);
         const confirmAnchorTextForReserve = buildAnchorWireText('order_confirm', confirmPayloadForReserve);
@@ -23204,11 +23606,15 @@ app.post('/api/orders/:id/action', async (req, res) => {
         const actorKeypairForReserve = (() => {
           try { return wallet.deriveChatKeypairFromMnemonic(mnemonic); } catch (_) { return null; }
         })();
+        const estimatedPackageChars = typeof wallet.estimateOrderSettlementPackageCharsFromRawtxHexChars === 'function'
+          ? wallet.estimateOrderSettlementPackageCharsFromRawtxHexChars(estimatedDraftHexChars)
+          : estimatedDraftHexChars;
         const shipReserveOrder = migrateOrderModel({
           ...order,
           chain: {
             ...(order.chain || {}),
-            completedDraftRawtx: estimatedDraftHexChars > 0 ? '0'.repeat(estimatedDraftHexChars) : '',
+            completedSettlementPackage: estimatedPackageChars > 0 ? 'p'.repeat(estimatedPackageChars) : '',
+            completedDraftRawtx: '',
           },
         });
         const shipPayloadForReserve = buildOrderActionAnchorPayload(shipReserveOrder, { eventType: 'order_ship' }, '', actorKeypairForReserve ? {
@@ -23231,6 +23637,7 @@ app.post('/api/orders/:id/action', async (req, res) => {
           shipAnchorFeeReserveSats,
           confirmPayloadBytes: Buffer.byteLength(confirmAnchorTextForReserve, 'utf8'),
           estimatedDraftHexChars,
+          estimatedPackageChars,
           shipPayloadBytes: Buffer.byteLength(shipAnchorTextForReserve, 'utf8'),
         });
         sellerLockTx = wallet.buildOrderSellerLockTx({
@@ -23272,8 +23679,8 @@ app.post('/api/orders/:id/action', async (req, res) => {
       order.chain.sellerSettlementFeeTxid = sellerLockBroadcast.txid;
       order.chain.sellerSettlementFeeVout = Number(sellerLockTx.settlementFeeVout || 0);
       order.chain.sellerSettlementFeeSats = Number(sellerLockTx.settlementFeeReserveSats || 0);
-      order.chain.sellerShipAnchorFeeTxid = sellerLockBroadcast.txid;
-      order.chain.sellerShipAnchorFeeVout = Number(sellerLockTx.shipAnchorFeeVout || 0);
+      order.chain.sellerShipAnchorFeeTxid = String(sellerLockTx.shipAnchorFeeVout || '') === '-1' ? '' : sellerLockBroadcast.txid;
+      order.chain.sellerShipAnchorFeeVout = Number(sellerLockTx.shipAnchorFeeVout || -1);
       order.chain.sellerShipAnchorFeeSats = Number(sellerLockTx.shipAnchorFeeReserveSats || 0);
       order.chain.sellerLockAcceptedAtHeight = Math.max(0, Number(state?.sync?.localHeight || 0));
       await handleObservedChainRawtx({
@@ -23310,7 +23717,7 @@ app.post('/api/orders/:id/action', async (req, res) => {
         buyerSourceRedeemScriptHex: String(order?.chain?.buyerLockRedeemScriptHex || '').trim(),
         sellerSourceTxid: String(order?.chain?.sellerLockTxid || '').trim(),
         sellerSourceVout: Number(order?.chain?.sellerLockVout || 0),
-        sellerSourceSats: Number(order?.chain?.sellerLockSats || order?.funds?.sellerDepositSats || 0),
+        sellerSourceSats: getOrderSellerLockSats(order),
         sellerSourceRedeemScriptHex: String(order?.chain?.sellerLockRedeemScriptHex || '').trim(),
         buyerChatPubKey: String(order?.chain?.buyerChatPubKey || '').trim(),
         sellerChatPubKey: String(order?.chain?.sellerChatPubKey || '').trim(),
@@ -23321,16 +23728,27 @@ app.post('/api/orders/:id/action', async (req, res) => {
         anchorText: buildAnchorWireText('order_confirm', confirmPayloadForSettlement),
         preferredFeeOutpoints: [`${String(order?.chain?.sellerSettlementFeeTxid || '').trim()}:${Number(order?.chain?.sellerSettlementFeeVout || 0)}`],
       });
-      order.chain.completedDraftRawtx = wallet.signOrderSettlementDraft({
+      const sellerSignedSettlementRawtx = wallet.signOrderSettlementDraft({
         mnemonic,
         draftRawtx: String(completedDraft.rawtx || '').trim(),
         buyerSourceRedeemScriptHex: String(order?.chain?.buyerLockRedeemScriptHex || '').trim(),
         sellerSourceRedeemScriptHex: String(order?.chain?.sellerLockRedeemScriptHex || '').trim(),
         buyerSourceSats: Number(order?.chain?.buyerLockSats || order?.funds?.buyerLockedSats || 0),
-        sellerSourceSats: Number(order?.chain?.sellerLockSats || order?.funds?.sellerDepositSats || 0),
+        sellerSourceSats: getOrderSellerLockSats(order),
         spendSellerSource: true,
         signerRole: 'seller',
       }).rawtx;
+      const settlementPackage = typeof wallet.buildOrderSettlementSignaturePackage === 'function'
+        ? wallet.buildOrderSettlementSignaturePackage({ rawtx: sellerSignedSettlementRawtx })
+        : null;
+      order.chain.completedSettlementPackage = String(settlementPackage?.package || '').trim();
+      order.chain.completedDraftRawtx = order.chain.completedSettlementPackage ? '' : sellerSignedSettlementRawtx;
+      appendMarketDebug('order_settlement_signature_package_built', {
+        orderId: String(order?.id || ''),
+        rawtxHexChars: sellerSignedSettlementRawtx.length,
+        packageChars: String(order.chain.completedSettlementPackage || '').length,
+        encoding: String(settlementPackage?.encoding || ''),
+      });
       const settlementFeeInputOutpoints = Array.isArray(completedDraft.feeInputOutpoints) ? completedDraft.feeInputOutpoints : [];
       const shipAnchorFeeOutpoints = deriveSellerShipAnchorFeeOutpoints(order, mnemonic, {
         excludeOutpoints: settlementFeeInputOutpoints,
@@ -23370,20 +23788,27 @@ app.post('/api/orders/:id/action', async (req, res) => {
         order.chain.completedSettlementTxid = existingSettlementTxid;
         order.funds.sellerCreditSats = Number(order?.funds?.priceSats || 0);
         order.funds.buyerRefundSats = Number(order?.funds?.buyerDepositSats || 0);
-        order.funds.sellerRefundSats = Number(order?.funds?.sellerDepositSats || 0);
+        order.funds.sellerRefundSats = getOrderSellerLockSats(order);
         const confirmAnchor = await broadcastSignedActionAnchor(existingSettlementTxid, 'buyer');
         anchor = confirmAnchor;
         localTxid = String(confirmAnchor?.txid || existingSettlementTxid || '').trim();
       } else {
-      assertOrderChainValue(order, 'chain.completedDraftRawtx', 'Missing seller completion settlement signature from ship event');
+      const packagedSettlementRawtx = String(order?.chain?.completedSettlementPackage || '').trim()
+        ? wallet.rawtxFromOrderSettlementSignaturePackage(String(order.chain.completedSettlementPackage || '').trim())
+        : String(order?.chain?.completedDraftRawtx || '').trim();
+      if (!packagedSettlementRawtx) {
+        const err = new Error('Missing seller completion settlement signature from ship event');
+        err.code = 'ORDER_CHAIN_INCOMPLETE';
+        throw err;
+      }
       const completedBroadcast = await broadcastAndTrackOrderRawtx(req, state, {
         rawtx: wallet.signOrderSettlementDraft({
           mnemonic,
-          draftRawtx: String(order?.chain?.completedDraftRawtx || '').trim(),
+          draftRawtx: packagedSettlementRawtx,
           buyerSourceRedeemScriptHex: String(order?.chain?.buyerLockRedeemScriptHex || '').trim(),
           sellerSourceRedeemScriptHex: String(order?.chain?.sellerLockRedeemScriptHex || '').trim(),
           buyerSourceSats: Number(order?.chain?.buyerLockSats || order?.funds?.buyerLockedSats || 0),
-          sellerSourceSats: Number(order?.chain?.sellerLockSats || order?.funds?.sellerDepositSats || 0),
+          sellerSourceSats: getOrderSellerLockSats(order),
           spendSellerSource: true,
           signerRole: 'buyer',
         }).rawtx,
@@ -23401,7 +23826,7 @@ app.post('/api/orders/:id/action', async (req, res) => {
       order.chain.completedSettlementTxid = completedBroadcast.txid;
       order.funds.sellerCreditSats = Number(order?.funds?.priceSats || 0);
       order.funds.buyerRefundSats = Number(order?.funds?.buyerDepositSats || 0);
-      order.funds.sellerRefundSats = Number(order?.funds?.sellerDepositSats || 0);
+      order.funds.sellerRefundSats = getOrderSellerLockSats(order);
       await handleObservedChainRawtx({
         txid: completedBroadcast.txid,
         rawtx: completedBroadcast.rawtx,
@@ -23429,7 +23854,7 @@ app.post('/api/orders/:id/action', async (req, res) => {
         buyerSourceRedeemScriptHex: String(order?.chain?.buyerLockRedeemScriptHex || '').trim(),
         sellerSourceTxid: String(order?.chain?.sellerLockTxid || '').trim(),
         sellerSourceVout: Number(order?.chain?.sellerLockVout || 0),
-        sellerSourceSats: Number(order?.chain?.sellerLockSats || order?.funds?.sellerDepositSats || 0),
+        sellerSourceSats: getOrderSellerLockSats(order),
         sellerSourceRedeemScriptHex: String(order?.chain?.sellerLockRedeemScriptHex || '').trim(),
         buyerChatPubKey: String(order?.chain?.buyerChatPubKey || '').trim(),
         sellerChatPubKey: String(order?.chain?.sellerChatPubKey || '').trim(),
@@ -23447,7 +23872,7 @@ app.post('/api/orders/:id/action', async (req, res) => {
         buyerSourceRedeemScriptHex: String(order?.chain?.buyerLockRedeemScriptHex || '').trim(),
         sellerSourceRedeemScriptHex: String(order?.chain?.sellerLockRedeemScriptHex || '').trim(),
         buyerSourceSats: Number(order?.chain?.buyerLockSats || order?.funds?.buyerLockedSats || 0),
-        sellerSourceSats: Number(order?.chain?.sellerLockSats || order?.funds?.sellerDepositSats || 0),
+        sellerSourceSats: getOrderSellerLockSats(order),
         spendSellerSource: true,
         signerRole: 'buyer',
       }).rawtx;
@@ -23509,7 +23934,7 @@ app.post('/api/orders/:id/action', async (req, res) => {
           buyerSourceRedeemScriptHex: String(order?.chain?.buyerLockRedeemScriptHex || '').trim(),
           sellerSourceRedeemScriptHex: String(order?.chain?.sellerLockRedeemScriptHex || '').trim(),
           buyerSourceSats: Number(order?.chain?.buyerLockSats || order?.funds?.buyerLockedSats || 0),
-          sellerSourceSats: Number(order?.chain?.sellerLockSats || order?.funds?.sellerDepositSats || 0),
+          sellerSourceSats: getOrderSellerLockSats(order),
           spendSellerSource: true,
           signerRole: 'seller',
         }).rawtx,
@@ -23556,6 +23981,22 @@ app.post('/api/orders/:id/action', async (req, res) => {
       });
       order.chain.cancelTxid = cancelBroadcast.txid;
       localTxid = cancelBroadcast.txid;
+    } else if (action === 'sellerCancel' && sellerCancelUsesRequestFlow) {
+      appendMarketDebug('order_action_stage', {
+        orderId: String(order?.id || ''),
+        action,
+        stage: 'broadcast_seller_cancel_request',
+        placeTxid: String(order?.chain?.placeTxid || ''),
+      });
+      order.chain.sellerCancelReasonCode = String(req.body?.reasonCode || 'seller_cancel_before_accept').trim();
+      anchor = await broadcastSignedActionAnchor('', 'seller', {
+        includeUnconfirmed: true,
+        requireVisibility: true,
+        notifyAddresses: [String(order?.chain?.buyerRefundAddress || '').trim()].filter(Boolean),
+      });
+      localTxid = String(anchor?.txid || '').trim();
+      order.chain.sellerCancelRequestTxid = localTxid;
+      order.chain.sellerCancelRequestedAt = new Date().toISOString();
     } else if (action === 'sellerCancel') {
       appendMarketDebug('order_action_stage', {
         orderId: String(order?.id || ''),
@@ -23605,13 +24046,14 @@ app.post('/api/orders/:id/action', async (req, res) => {
       localTxid = timeoutBroadcast.txid;
     }
 
-    if (!refreshRefundRequestDraft) {
+    if (!refreshRefundRequestDraft && actionMeta.machineAction !== 'seller_cancel_request') {
       const next = applyTransition(order, actionMeta.machineAction, {
         transitionId,
         config: orderMachineConfig(),
       });
       Object.assign(order, next);
     }
+    hydrateMissingOrderChainRefsFromTransitions(order);
     order.tip = actionMeta.tip;
     if (localTxid && (action === 'ship' || action === 'requestRefund' || action === 'cancel' || action === 'sellerCancel' || action === 'timeoutCancel')) {
       order.chain.stateAnchorTxid = localTxid;
@@ -23754,6 +24196,7 @@ app.post('/api/orders/rebuild-chain-projection', walletAuthRequired, async (req,
     return !before || JSON.stringify(before) !== JSON.stringify(row);
   });
   persistOrderProjectionRowsSync(orders, 'orders_chain_projection_rebuild');
+  await autoCompleteSellerCancelRequests(req, state, orders);
   commitCoreRuntimeProjectionState(state, {
     reason: 'orders_chain_projection_rebuild',
     hydrated: true,
@@ -23810,7 +24253,7 @@ app.post('/api/orders/:id/refresh-shipment-signature', walletAuthRequired, async
       buyerSourceRedeemScriptHex: String(order?.chain?.buyerLockRedeemScriptHex || '').trim(),
       sellerSourceTxid: String(order?.chain?.sellerLockTxid || '').trim(),
       sellerSourceVout: Number(order?.chain?.sellerLockVout || 0),
-      sellerSourceSats: Number(order?.chain?.sellerLockSats || order?.funds?.sellerDepositSats || 0),
+      sellerSourceSats: getOrderSellerLockSats(order),
       sellerSourceRedeemScriptHex: String(order?.chain?.sellerLockRedeemScriptHex || '').trim(),
       buyerChatPubKey: String(order?.chain?.buyerChatPubKey || '').trim(),
       sellerChatPubKey: String(order?.chain?.sellerChatPubKey || '').trim(),
@@ -23820,16 +24263,21 @@ app.post('/api/orders/:id/refresh-shipment-signature', walletAuthRequired, async
       spendSellerSource: true,
       preferredFeeOutpoints: [`${String(order?.chain?.sellerSettlementFeeTxid || '').trim()}:${Number(order?.chain?.sellerSettlementFeeVout || 0)}`],
     });
-    order.chain.completedDraftRawtx = wallet.signOrderSettlementDraft({
+    const sellerSignedSettlementRawtx = wallet.signOrderSettlementDraft({
       mnemonic,
       draftRawtx: String(completedDraft.rawtx || '').trim(),
       buyerSourceRedeemScriptHex: String(order?.chain?.buyerLockRedeemScriptHex || '').trim(),
       sellerSourceRedeemScriptHex: String(order?.chain?.sellerLockRedeemScriptHex || '').trim(),
       buyerSourceSats: Number(order?.chain?.buyerLockSats || order?.funds?.buyerLockedSats || 0),
-      sellerSourceSats: Number(order?.chain?.sellerLockSats || order?.funds?.sellerDepositSats || 0),
+      sellerSourceSats: getOrderSellerLockSats(order),
       spendSellerSource: true,
       signerRole: 'seller',
     }).rawtx;
+    const settlementPackage = typeof wallet.buildOrderSettlementSignaturePackage === 'function'
+      ? wallet.buildOrderSettlementSignaturePackage({ rawtx: sellerSignedSettlementRawtx })
+      : null;
+    order.chain.completedSettlementPackage = String(settlementPackage?.package || '').trim();
+    order.chain.completedDraftRawtx = order.chain.completedSettlementPackage ? '' : sellerSignedSettlementRawtx;
     const sellerKeypair = wallet.deriveChatKeypairFromMnemonic(mnemonic);
     const payload = buildOrderActionAnchorPayload(order, ORDER_ACTION_META.ship, '', {
       role: 'seller',
@@ -23855,6 +24303,7 @@ app.post('/api/orders/:id/refresh-shipment-signature', walletAuthRequired, async
       orderId: order.id,
       anchorTxid: order.chain.shipTxid || null,
       completedDraftRawtxLen: String(order.chain.completedDraftRawtx || '').length,
+      completedSettlementPackageLen: String(order.chain.completedSettlementPackage || '').length,
       feeSat: Number(completedDraft.feeSat || 0),
     });
   } catch (err) {
@@ -24315,6 +24764,50 @@ app.get('/api/debug/pending', (req, res) => {
 
 app.get('/api/diag/perf', (_req, res) => {
   return res.json(buildPerfDiagnostics());
+});
+
+const rendezvousHandlers = getProjectNodeRendezvousService().expressHandlers({
+  getSelfNodeId: () => {
+    try {
+      const status = getPublicNodeStatus();
+      return String(status?.capability?.nodeId || os.hostname() || 'public-node');
+    } catch (_) {
+      return String(os.hostname() || 'public-node');
+    }
+  },
+});
+app.post('/api/rendezvous/presence', rendezvousHandlers.announce);
+app.get('/api/rendezvous/presence', rendezvousHandlers.lookup);
+app.get('/api/rendezvous/presence/list', rendezvousHandlers.list);
+app.post('/api/rendezvous/signal', rendezvousHandlers.signal);
+app.get('/api/rendezvous/signal/poll', rendezvousHandlers.poll);
+app.get('/api/rendezvous/signal/poll-long', rendezvousHandlers.pollLong);
+app.get('/api/rendezvous/stats', rendezvousHandlers.stats);
+
+app.get('/api/public-node/status', (_req, res) => {
+  return res.json(getPublicNodeStatus());
+});
+
+app.get('/api/public-node/self-check', (req, res) => {
+  return res.json({
+    success: true,
+    token: String(req.query?.token || '') === String(getPublicNodeService().getSelfCheckToken() || '')
+      ? getPublicNodeService().getSelfCheckToken()
+      : '',
+  });
+});
+
+app.post('/api/public-node/refresh', walletAuthRequired, async (req, res) => {
+  try {
+    const status = await refreshPublicNodeStatus(req, { skipExternal: req.body?.skipExternal === true });
+    return res.json(status);
+  } catch (err) {
+    return fail(res, String(err?.message || err || 'public node refresh failed'), 500);
+  }
+});
+
+app.get('/api/public-node/ice-servers', (_req, res) => {
+  return res.json({ success: true, iceServers: getPublicNodeIceServers() });
 });
 
 registerChatRoutes(app, {
@@ -24971,6 +25464,14 @@ async function startServer({ port = PORT, host = '0.0.0.0' } = {}) {
     if (process.env.BSV_MARKET_DISABLE_STEWARD_WORKER !== '1') startStewardWorker();
     if (process.env.BSV_MARKET_DISABLE_CATALOG_WORKER !== '1') startCatalogWorker();
     if (process.env.BSV_MARKET_DISABLE_CHAT_SERVICE !== '1') startChatServiceWorker();
+    if (process.env.BSV_MARKET_DISABLE_PUBLIC_NODE_AUTO !== '1') {
+      refreshPublicNodeStatus(buildRuntimeAuthReq(), { skipExternal: false }).catch((err) => {
+        appendMarketDebug('public_node_startup_refresh_failed', {
+          message: String(err?.message || err || ''),
+        });
+      });
+      startPublicNodeRefreshLoop();
+    }
     if (USE_VIEW_STATE_WORKER && process.env.BSV_MARKET_DISABLE_VIEW_STATE_WORKER !== '1') startViewStateWorker();
     else scheduleLocalPublicStateCacheRebuild('startup', 10);
     try {
@@ -25021,9 +25522,11 @@ async function startServer({ port = PORT, host = '0.0.0.0' } = {}) {
         clearLocalPublicStateCacheRebuildTimer();
         stopEventLoopLagMonitor();
         stopSpvListenerMaintainLoop();
+        stopPublicNodeRefreshLoop();
         void syncDomain.stopSyncDomain('server_close').catch(() => {});
         stopStewardWorker();
         stopChatServiceWorker();
+        try { getPublicNodeService().stop(); } catch (_) {}
         stopViewStateWorker();
         try { wsServer?.close(); } catch (_) {}
         frontendEventGateway?.close?.();
@@ -25108,6 +25611,9 @@ module.exports = {
   normalizeChatHttpEndpoint,
   getWalletIdForChatPubKey,
   getChatDomainPreview,
+  getPublicNodeStatus,
+  refreshPublicNodeStatus,
+  getPublicNodeIceServers,
   getAppendMarketDebug() {
     return appendMarketDebug;
   },

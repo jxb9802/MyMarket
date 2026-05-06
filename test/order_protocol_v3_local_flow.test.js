@@ -232,19 +232,23 @@ test('seller accept tx splits a dedicated settlement fee UTXO', { concurrency: f
   });
   const tx = new bsv.Transaction(acceptTx.rawtx);
   assert.equal(acceptTx.sellerLockVout, 0);
+  assert.equal(acceptTx.sellerDepositSats, wallet.computeOrderSellerDepositSats(priceSats));
+  assert.equal(acceptTx.sellerLockSats, acceptTx.sellerDepositSats);
+  assert.equal(tx.outputs[0].satoshis, acceptTx.sellerDepositSats);
   assert.equal(tx.outputs[0].script.isPublicKeyHashOut(), true);
   assert.equal(acceptTx.anchorVout, 1);
   assert.equal(tx.outputs[acceptTx.anchorVout].script.isDataOut(), true);
   assert.equal(tx.outputs[acceptTx.anchorVout].satoshis, wallet.ORDER_ANCHOR_OUTPUT_SAT);
   assert.equal(acceptTx.settlementFeeVout, 2);
   assert.equal(tx.outputs[2].satoshis, acceptTx.settlementFeeReserveSats);
-  assert.equal(tx.outputs[3].satoshis, acceptTx.shipAnchorFeeReserveSats);
+  assert.equal(acceptTx.shipAnchorFeeVout, -1);
+  assert.equal(acceptTx.shipAnchorFeeUtxo, null);
   assert.ok(acceptTx.settlementFeeReserveSats >= wallet.estimateOrderSettlementFeeReserveSat({ mode: 'completed', includeSellerSource: true }));
   assert.ok(acceptTx.shipAnchorFeeReserveSats >= wallet.estimateAnchorDataFeeReserveSat({
     payloadBytes: Buffer.byteLength(JSON.stringify({ t: 'order_accept', p: { v: 3, pt: '1'.repeat(64) } }), 'utf8'),
     notifyOutputCount: 1,
   }));
-  assert.equal(String(tx.outputs[4].script.toAddress(wallet.NETWORK)), buyerNotifyAddress);
+  assert.equal(String(tx.outputs[3].script.toAddress(wallet.NETWORK)), buyerNotifyAddress);
 
   wallet.commitWalletLocalMutation(acceptTx.rawtx, {
     source: 'test_accept_fee_split',
@@ -282,6 +286,8 @@ test('seller accept tx splits a dedicated settlement fee UTXO', { concurrency: f
     preferredFeeOutpoints: [`${acceptTx.txid}:${acceptTx.settlementFeeVout}`],
   });
   assert.ok(draft.feeInputOutpoints.includes(`${acceptTx.txid}:${acceptTx.settlementFeeVout}`));
+  assert.equal(draft.buyerRefundSats, 2000);
+  assert.equal(draft.sellerRefundSats, acceptTx.sellerDepositSats);
   const sellerSigned = wallet.signOrderSettlementDraft({
     mnemonic,
     draftRawtx: draft.rawtx,
@@ -306,4 +312,28 @@ test('seller accept tx splits a dedicated settlement fee UTXO', { concurrency: f
   });
   const buyerSignedTx = new bsv.Transaction(buyerSigned.rawtx);
   assert.ok(String(buyerSignedTx.inputs[0]?.script || '').length > 0);
+
+  const refundDraft = await wallet.buildOrderSettlementDraft({
+    mnemonic,
+    mode: 'refunded',
+    priceSats,
+    buyerSourceTxid: '4'.repeat(64),
+    buyerSourceVout: 0,
+    buyerSourceSats: 12000,
+    buyerSourceRedeemScriptHex: buyerLockRedeemScriptHex,
+    sellerSourceTxid: acceptTx.txid,
+    sellerSourceVout: 0,
+    sellerSourceSats: acceptTx.sellerLockSats,
+    sellerSourceRedeemScriptHex: acceptTx.jointRedeemScriptHex,
+    buyerChatPubKey,
+    sellerChatPubKey,
+    buyerRefundAddress: firstAddress,
+    sellerReceiveAddress: firstAddress,
+    sellerRefundAddress: firstAddress,
+    spendSellerSource: true,
+    anchorText: JSON.stringify({ t: 'order_refund_confirm', p: { v: 3, pt: '1'.repeat(64) } }),
+    preferredFeeOutpoints: [`${acceptTx.txid}:${acceptTx.settlementFeeVout}`],
+  });
+  assert.equal(refundDraft.buyerRefundSats, 12000);
+  assert.equal(refundDraft.sellerRefundSats, acceptTx.sellerDepositSats);
 });

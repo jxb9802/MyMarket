@@ -77,15 +77,17 @@ For a price `ps`:
 - buyer lock amount `bs = ps + bd`
 - seller lock amount `ss = sd`
 
+`sd` is the seller penalty deposit. `ss` is the total seller escrow output and does not include the product amount; seller product income is paid from the buyer lock on completion.
+
 Completion settlement:
 
 - seller receives `ps`
 - buyer receives `bd`
-- seller receives `sd`
+- seller receives `ss`
 
 Refund settlement:
 
-- buyer receives `ps + bd`
+- buyer receives `bs + ps`
 - seller receives `sd`
 
 Dispute:
@@ -137,7 +139,7 @@ If a seller-only branch is implemented later, it must be proven by tests to be n
 
 ### Seller Lock Script
 
-The seller lock script locks `sd`.
+The seller lock script locks `ss`, where `ss = sd`.
 
 It is a 2-of-2 buyer/seller settlement script reconstructed from:
 
@@ -193,12 +195,12 @@ Completion/refund settlement input order:
 
 1. seller receive output: `sr`, amount `ps`
 2. buyer refund output: `br`, amount `bd`
-3. seller refund output: `sf`, amount `sd`
+3. seller refund output: `sf`, amount `ss`
 4. optional broadcaster change output
 
 ### Output Order: Refunded
 
-1. buyer refund output: `br`, amount `ps + bd`
+1. buyer refund output: `br`, amount `bs + ps`
 2. seller refund output: `sf`, amount `sd`
 3. optional broadcaster change output
 
@@ -320,7 +322,7 @@ Validation:
 
 ### `order_accept`
 
-Seller accepts the order and locks seller deposit.
+Seller accepts the order and locks seller escrow (`ss = sd`).
 
 ```json
 {
@@ -328,7 +330,7 @@ Seller accepts the order and locks seller deposit.
   "pt": "placeTxid",
   "sx": "sellerLockTxid",
   "sv": 0,
-  "ss": 1000,
+  "ss": 11000,
   "sh": "sha256(sellerLockScriptHex)",
   "sr": "sellerReceiveAddress",
   "sf": "sellerRefundAddress",
@@ -341,7 +343,7 @@ Seller accepts the order and locks seller deposit.
 Validation:
 
 - referenced `pt` has valid `order_place`
-- `ss == sd`
+- `ss == ps + sd`
 - seller lock output exists at `sx:sv`
 - reconstructed seller lock script hash equals `sh`
 - actor pubkey matches seller pubkey `sp`
@@ -368,7 +370,7 @@ Validation:
 - order is `ACCEPTED`
 - `sx` matches accepted seller lock txid
 - `sg` verifies against the deterministic completed settlement template
-- `sg` spends both buyer lock and seller lock, pays seller goods amount, refunds buyer deposit, and refunds seller deposit
+- `sg` spends both buyer lock and seller lock, pays seller goods amount from the buyer lock, refunds buyer deposit, and returns seller deposit `ss`
 - any fee inputs/change in `sg` are prepared and signed by the seller at ship time, so the buyer can complete while the seller is offline
 
 Buyer completion path:
@@ -746,7 +748,7 @@ Hard limits:
 ## Implementation Requirements
 
 1. Add an order protocol module that owns field names, canonical serialization, script reconstruction, template reconstruction, and validation.
-2. Update seller deposit policy to 10% unless overridden by explicit protocol config.
+2. Update seller deposit policy to 10% unless overridden by explicit protocol config, and lock `ps + sd` as seller escrow.
 3. Move current order payload from `v:2` to `v:3`.
 4. Add `jh` to `order_place`.
 5. Add mandatory script-hash validation during order replay.

@@ -307,6 +307,15 @@ function filterLiveMessagesByOrder(messages = [], query = {}) {
   });
 }
 
+function listLiveMessagesForWallet(state = {}, walletId = '') {
+  const safeWalletId = String(walletId || '').trim();
+  if (!safeWalletId) return [];
+  return Object.values(state?.chatMessages || {})
+    .filter((row) => String(row?.walletId || row?.peerWalletId || '').trim() === safeWalletId)
+    .sort((a, b) => Date.parse(String(a?.ts || '')) - Date.parse(String(b?.ts || '')))
+    .map((row) => ({ ...(row && typeof row === 'object' ? row : {}) }));
+}
+
 function mergeLiveMessagesIntoThreadPayload(payload = {}, liveMessages = [], walletId = '') {
   const peerDisplayName = String(payload?.thread?.displayName || walletId);
   if (!Array.isArray(payload.messages)) payload.messages = [];
@@ -379,15 +388,18 @@ async function handleGetThread(walletIdRaw, query = {}) {
   const afterStateAt = Date.now();
   const payload = await serverMarket.getChatPayloadService().buildChatDomainThreadPayloadFromState(state, req, walletId);
   const afterPayloadAt = Date.now();
+  const liveMessages = filterLiveMessagesByOrder(listLiveMessagesForWallet(state, walletId), query);
+  mergeLiveMessagesIntoThreadPayload(payload, liveMessages, walletId);
   applyLiveStatusToThreadPayload(payload, walletId);
   workerAppendMarketDebug('chat_thread_worker_timing', {
     elapsedMs: Date.now() - startedAt,
     stateMs: afterStateAt - startedAt,
     payloadMs: afterPayloadAt - afterStateAt,
-    liveMergeMs: 0,
+    liveMergeMs: Date.now() - afterPayloadAt,
     stateSource,
     walletId,
     messageCount: Array.isArray(payload.messages) ? payload.messages.length : 0,
+    liveMessageCount: liveMessages.length,
   });
   return payload;
 }

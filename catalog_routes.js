@@ -1,5 +1,5 @@
 function registerCatalogRoutes(app, deps = {}) {
-  const PRODUCT_IMAGE_CHAIN_MAX_CHARS = 24000;
+  const PRODUCT_IMAGE_CHAIN_MAX_CHARS = 60000;
   const {
     walletAuthRequired,
     ok,

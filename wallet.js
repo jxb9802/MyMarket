@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const zlib = require('zlib');
 const axios = require('axios');
 const net = require('net');
 const { EventEmitter } = require('events');
@@ -6478,6 +6479,25 @@ function clearTransactionSignatures(tx) {
   }
 }
 
+function normalizeTransactionFeeToOutputDelta(tx, utxos) {
+  const inputSat = (Array.isArray(utxos) ? utxos : [])
+    .reduce((sum, utxo) => sum + Math.max(0, Number(utxo?.satoshis || 0)), 0);
+  const outputSat = (Array.isArray(tx?.outputs) ? tx.outputs : [])
+    .reduce((sum, output) => sum + Math.max(0, Number(output?.satoshis || 0)), 0);
+  const feeSat = inputSat - outputSat;
+  if (Number.isFinite(feeSat) && feeSat >= 0 && tx) {
+    tx._fee = feeSat;
+  }
+  return Math.max(0, Number.isFinite(feeSat) ? feeSat : 0);
+}
+
+function serializeSignedTransaction(tx) {
+  if (tx && typeof tx.uncheckedSerialize === 'function') {
+    return tx.uncheckedSerialize();
+  }
+  return tx.serialize();
+}
+
 function buildSpendableUtxoError(state, hdPrivateKey, action, maxAncestorDepth) {
   const allSpendable = listSpendableUtxosForState(state, hdPrivateKey, {
     includeUnconfirmed: true,
@@ -6530,7 +6550,7 @@ function finalizeFeeAndSign(tx, utxos, changeAddress, feeRate = DEFAULT_FEE_RATE
     // During fee convergence the auto-generated change output can briefly fall
     // below dust. We need the signed size first so we can absorb/remove that
     // tiny change before doing a fully checked serialize.
-    const rawtx = tx.serialize({ disableDustOutputs: true });
+    const rawtx = serializeSignedTransaction(tx);
     const sizeBytes = Buffer.from(rawtx, 'hex').length;
     const requiredFeeSat = requiredFeeForSizeSat(sizeBytes, feeRate);
     const targetFeeSat = requiredFeeSat + FINAL_SIGNED_FEE_SAFETY_SAT;
@@ -6549,11 +6569,12 @@ function finalizeFeeAndSign(tx, utxos, changeAddress, feeRate = DEFAULT_FEE_RATE
       }
     }
     if (currentFeeSat >= targetFeeSat && currentFeeSat <= targetFeeSat + FINAL_SIGNED_FEE_SAFETY_SAT) {
+      const actualFeeSat = normalizeTransactionFeeToOutputDelta(tx, utxos);
       return {
-        feeSat: currentFeeSat,
+        feeSat: actualFeeSat,
         requiredFeeSat,
         sizeBytes,
-        feePerByte: sizeBytes > 0 ? currentFeeSat / sizeBytes : 0,
+        feePerByte: sizeBytes > 0 ? actualFeeSat / sizeBytes : 0,
         absorbedChangeSat,
       };
     }
@@ -6562,16 +6583,17 @@ function finalizeFeeAndSign(tx, utxos, changeAddress, feeRate = DEFAULT_FEE_RATE
   }
   for (let i = 0; i < 6; i += 1) {
     signTransactionInputs(tx, utxos);
-    const rawtx = tx.serialize({ disableDustOutputs: true });
+    const rawtx = serializeSignedTransaction(tx);
     const sizeBytes = Buffer.from(rawtx, 'hex').length;
     const currentFeeSat = Number(tx.getFee ? tx.getFee() : feeSat);
     const requiredFeeSat = requiredFeeForSizeSat(sizeBytes, feeRate);
     if (currentFeeSat >= requiredFeeSat) {
+      const actualFeeSat = normalizeTransactionFeeToOutputDelta(tx, utxos);
       return {
-        feeSat: currentFeeSat,
+        feeSat: actualFeeSat,
         requiredFeeSat,
         sizeBytes,
-        feePerByte: sizeBytes > 0 ? currentFeeSat / sizeBytes : 0,
+        feePerByte: sizeBytes > 0 ? actualFeeSat / sizeBytes : 0,
         absorbedChangeSat,
       };
     }
@@ -6593,9 +6615,10 @@ function finalizeFeeAndSign(tx, utxos, changeAddress, feeRate = DEFAULT_FEE_RATE
     feeSat = targetFeeSat;
   }
   signTransactionInputs(tx, utxos);
-  const rawtx = tx.serialize();
+  const actualFeeSat = normalizeTransactionFeeToOutputDelta(tx, utxos);
+  const rawtx = serializeSignedTransaction(tx);
   const sizeBytes = Buffer.from(rawtx, 'hex').length;
-  const currentFeeSat = Number(tx.getFee ? tx.getFee() : feeSat);
+  const currentFeeSat = actualFeeSat;
   const requiredFeeSat = requiredFeeForSizeSat(sizeBytes, feeRate);
   if (currentFeeSat < requiredFeeSat) {
     throw new Error(`Final signed transaction fee too low (${currentFeeSat} < ${requiredFeeSat})`);
@@ -6656,7 +6679,7 @@ function finalizeSendAllFeeAndSign(tx, utxos, sendOutputIndex, feeRate = DEFAULT
   }
   clearExplicitTransactionFee(tx);
   signTransactionInputs(tx, utxos);
-  const rawtx = tx.serialize();
+  const rawtx = serializeSignedTransaction(tx);
   const sizeBytes = Buffer.from(rawtx, 'hex').length;
   const feeSat = totalInputSat - Number(output.satoshis || 0);
   const requiredFeeSat = requiredFeeForSizeSat(sizeBytes, feeRate);
@@ -10039,15 +10062,20 @@ function toScriptHashAddress(redeemScript) {
 }
 
 function createManualInput({ prevTxId, outputIndex, outputScript, satoshis }) {
-  return new bsv.Transaction.Input({
+  const output = new bsv.Transaction.Output({
+    script: outputScript,
+    satoshis: Number(satoshis || 0),
+  });
+  const inputOptions = {
     prevTxId: String(prevTxId || '').trim(),
     outputIndex: Number(outputIndex || 0),
     script: bsv.Script.empty(),
-    output: new bsv.Transaction.Output({
-      script: outputScript,
-      satoshis: Number(satoshis || 0),
-    }),
-  });
+    output,
+  };
+  if (outputScript?.isPublicKeyHashOut && outputScript.isPublicKeyHashOut()) {
+    return new bsv.Transaction.Input.PublicKeyHash(inputOptions);
+  }
+  return new bsv.Transaction.Input(inputOptions);
 }
 
 function attachManualInputOutput(tx, inputIndex, outputScript, satoshis) {
@@ -10128,8 +10156,8 @@ function buildOrderStateTransitionTx({
   tx.addOutput(buildOrderAnchorOutput(text));
   const changeAddress = new bsv.Address(getReceiveAddressFromState(state), NETWORK);
   const feePlan = finalizeFeeAndSign(tx, selected, changeAddress, DEFAULT_FEE_RATE, SAFE_MIN_CHANGE_SAT);
-  const rawtx = tx.serialize();
-  const txid = tx.id;
+  const rawtx = serializeSignedTransaction(tx);
+  const txid = txidFromRaw(rawtx);
   if (note && String(note).trim()) setNote(txid, String(note).trim());
   return {
     rawtx,
@@ -10347,6 +10375,9 @@ function buildOrderPlaceLockTx({
     ? Math.max(0, Math.floor(Number(priceSats)))
     : normalizeAmountToSats(priceBsv);
   const buyerDepositSats = Math.floor(unitPriceSats * 0.2);
+  if (buyerDepositSats > 0 && buyerDepositSats < MIN_ORDER_ESCROW_OUTPUT_SATS) {
+    throw new Error(`Buyer deposit refund output below safe minimum (${buyerDepositSats} < ${MIN_ORDER_ESCROW_OUTPUT_SATS}); increase the order amount`);
+  }
   const buyerLockSats = unitPriceSats + buyerDepositSats;
   const safeAnchorText = String(anchorText || '').trim();
   const notificationOutputs = Array.from(new Set((Array.isArray(notifyAddresses) ? notifyAddresses : [notifyAddresses])
@@ -10381,8 +10412,8 @@ function buildOrderPlaceLockTx({
   }
   const changeAddress = new bsv.Address(getReceiveAddressFromState(state), NETWORK);
   const feePlan = finalizeFeeAndSign(tx, selected, changeAddress, DEFAULT_FEE_RATE, SAFE_MIN_CHANGE_SAT);
-  const rawtx = tx.serialize();
-  const txid = tx.id;
+  const rawtx = serializeSignedTransaction(tx);
+  const txid = txidFromRaw(rawtx);
   if (note && String(note).trim()) setNote(txid, String(note).trim());
   return {
     rawtx,
@@ -10415,7 +10446,11 @@ function getOrderPlaceContext(mnemonic) {
 function computeOrderSellerDepositSats(priceSats) {
   const safePrice = Math.max(0, Math.floor(Number(priceSats || 0)));
   if (safePrice <= 0) return 0;
-  return Math.max(MIN_ORDER_ESCROW_OUTPUT_SATS, Math.floor(safePrice * 0.10));
+  return Math.max(MIN_ORDER_ESCROW_OUTPUT_SATS, Math.floor(safePrice * 0.05));
+}
+
+function computeOrderSellerLockSats(priceSats) {
+  return computeOrderSellerDepositSats(priceSats);
 }
 
 function buildOrderSellerLockTx({
@@ -10435,7 +10470,8 @@ function buildOrderSellerLockTx({
   const sellerChat = deriveChatKeypairFromMnemonic(mnemonic);
   const sellerPubKey = sellerChatPubKey ? coercePublicKeyHex(sellerChatPubKey, 'seller chat public key') : sellerChat.chatPubKey;
   if (sellerPubKey !== sellerChat.chatPubKey) throw new Error('seller chat public key does not match mnemonic');
-  const sellerLockSats = computeOrderSellerDepositSats(priceSats);
+  const sellerDepositSats = computeOrderSellerDepositSats(priceSats);
+  const sellerLockSats = sellerDepositSats;
   const safeAnchorText = String(anchorText || '').trim();
   const notificationOutputs = Array.from(new Set((Array.isArray(notifyAddresses) ? notifyAddresses : [notifyAddresses])
     .map((address) => String(address || '').trim())
@@ -10462,8 +10498,8 @@ function buildOrderSellerLockTx({
     }),
   );
 	  const { state, selection } = selectOrderFundingContext(mnemonic, {
-	    targetSat: sellerLockSats + feeReserveSats + shipFeeReserveSats + (safeAnchorText ? ORDER_ANCHOR_OUTPUT_SAT : 0) + (notificationOutputs.length * SAFE_MIN_CHANGE_SAT),
-	    outputCount: (safeAnchorText ? 5 : 4) + notificationOutputs.length,
+	    targetSat: sellerLockSats + feeReserveSats + (safeAnchorText ? ORDER_ANCHOR_OUTPUT_SAT : 0) + (notificationOutputs.length * SAFE_MIN_CHANGE_SAT),
+	    outputCount: (safeAnchorText ? 4 : 3) + notificationOutputs.length,
 	    dataBytes: payloadBytes,
 	    excludeOutpoints,
 	    requireConfirmed: true,
@@ -10488,14 +10524,12 @@ function buildOrderSellerLockTx({
   const changeAddress = new bsv.Address(getReceiveAddressFromState(state), NETWORK);
   const settlementFeeVout = tx.outputs.length;
   tx.to(changeAddress, feeReserveSats);
-  const shipAnchorFeeVout = tx.outputs.length;
-  tx.to(changeAddress, shipFeeReserveSats);
   for (const address of notificationOutputs) {
     tx.to(new bsv.Address(address, NETWORK), SAFE_MIN_CHANGE_SAT);
   }
   const feePlan = finalizeFeeAndSign(tx, selected, changeAddress, DEFAULT_FEE_RATE, SAFE_MIN_CHANGE_SAT);
-  const rawtx = tx.serialize();
-  const txid = tx.id;
+  const rawtx = serializeSignedTransaction(tx);
+  const txid = txidFromRaw(rawtx);
   let changeUtxo = null;
   try {
     const signedTx = new bsv.Transaction(rawtx);
@@ -10524,6 +10558,7 @@ function buildOrderSellerLockTx({
     rawtx,
     txid,
     feeSat: Number(feePlan.feeSat || 0),
+    sellerDepositSats,
     sellerLockSats,
     sellerLockVout: 0,
     anchorVout: safeAnchorText ? 1 : -1,
@@ -10539,16 +10574,8 @@ function buildOrderSellerLockTx({
       privKey: selected[0]?.privKey || null,
     },
     shipAnchorFeeReserveSats: shipFeeReserveSats,
-    shipAnchorFeeVout,
-    shipAnchorFeeUtxo: {
-      txId: txid,
-      vout: shipAnchorFeeVout,
-      satoshis: shipFeeReserveSats,
-      confirmed: false,
-      ancestorDepth: ORDER_MAX_UNCONFIRMED_ANCESTOR_DEPTH,
-      script: bsv.Script.buildPublicKeyHashOut(getReceiveAddressFromState(state)),
-      privKey: selected[0]?.privKey || null,
-    },
+    shipAnchorFeeVout: -1,
+    shipAnchorFeeUtxo: null,
     jointRedeemScriptHex: bsv.Script.buildPublicKeyHashOut(sellerLockAddress).toHex(),
     jointScriptHex: bsv.Script.buildPublicKeyHashOut(sellerLockAddress).toHex(),
     jointAddress: '',
@@ -10809,21 +10836,41 @@ function buildOrderTimeoutCancelTx({
   timeoutAt = 0,
   excludeOutpoints = null,
 } = {}) {
+  const buyerLockOutpoint = `${String(buyerLockTxid || '').trim()}:${Number(buyerLockVout || 0)}`;
+  const effectiveExcludeOutpoints = Array.from(new Set((Array.isArray(excludeOutpoints) ? excludeOutpoints : [])
+    .concat([buyerLockOutpoint])
+    .map((outpoint) => String(outpoint || '').trim())
+    .filter(Boolean)));
   const { state, hdPrivateKey, utxos } = getSpendableWalletContext(mnemonic, {
     includeUnconfirmed: true,
     maxAncestorDepth: ORDER_MAX_UNCONFIRMED_ANCESTOR_DEPTH,
     forceReload: true,
     allowLocalOwnedChain: true,
     ignoreLocalChainCheck: true,
-    excludeOutpoints,
+    excludeOutpoints: effectiveExcludeOutpoints,
   });
   const buyerChat = deriveChatKeypairFromMnemonic(mnemonic);
   const refundAddress = validateAddress(buyerRefundAddress) ? buyerRefundAddress : getReceiveAddressFromState(state);
   const buyerLockRedeemScript = new bsv.Script(String(buyerLockRedeemScriptHex || '').trim());
+  const feeEstimateSat = estimateTxFeeSat({ inputCount: 2, outputCount: 2, feeRate: DEFAULT_FEE_RATE })
+    + FINAL_SIGNED_FEE_SAFETY_SAT
+    + ORDER_CANCEL_FEE_MARGIN_SAT;
+  const feeSelection = selectUtxosForTransaction(utxos, {
+    targetSat: feeEstimateSat,
+    outputCount: 2,
+    feeRate: DEFAULT_FEE_RATE,
+    allowConsolidation: false,
+  });
+  const feeUtxos = Array.isArray(feeSelection?.utxos) ? feeSelection.utxos : [];
+  if (!feeUtxos.length) {
+    throw new Error('Cancel requires a wallet fee UTXO; escrow refund cannot pay cancel fee');
+  }
+  const totalFeeInputSat = feeUtxos.reduce((sum, u) => sum + Number(u.satoshis || 0), 0);
+  const changeAddress = getReceiveAddressFromState(state);
   let tx = new bsv.Transaction();
   const rebuildSignedTx = (feeSat) => {
-    const refundSat = Number(buyerLockSats || 0) - Number(feeSat || 0);
-    if (refundSat <= 0) throw new Error('Insufficient spendable balance');
+    const refundSat = Number(buyerLockSats || 0);
+    if (refundSat <= 0) throw new Error('Insufficient order refund amount');
     tx = new bsv.Transaction();
     tx.addInput(createManualInput({
       prevTxId: buyerLockTxid,
@@ -10831,10 +10878,15 @@ function buildOrderTimeoutCancelTx({
       outputScript: buildOrderEscrowOutputScript(buyerLockRedeemScript),
       satoshis: buyerLockSats,
     }));
+    tx.from(feeUtxos);
     tx.addOutput(new bsv.Transaction.Output({
       script: bsv.Script.buildPublicKeyHashOut(refundAddress),
       satoshis: refundSat,
     }));
+    const changeSat = totalFeeInputSat - Number(feeSat || 0);
+    if (changeSat >= SAFE_MIN_CHANGE_SAT) {
+      addP2pkhChangeOutput(tx, changeAddress, changeSat);
+    }
     if (buyerLockRedeemScript.isPublicKeyHashOut && buyerLockRedeemScript.isPublicKeyHashOut()) {
       const privKey = getWalletPrivateKeyForP2pkhScript(mnemonic, buyerLockRedeemScript);
       if (!privKey || !setP2pkhUnlockScript(tx, 0, privKey, buyerLockRedeemScript, buyerLockSats)) {
@@ -10851,9 +10903,10 @@ function buildOrderTimeoutCancelTx({
       );
       setOrderBuyerLockBuyerCancelUnlockScript(tx, 0, buyerSig.toTxFormat().toString('hex'), buyerLockRedeemScriptHex);
     }
+    signTransactionInputsAtOffset(tx, feeUtxos, 1);
     return tx;
   };
-  let feeSat = estimateTxFeeSat({ inputCount: 1, outputCount: 1, feeRate: DEFAULT_FEE_RATE });
+  let feeSat = feeEstimateSat;
   for (let i = 0; i < 8; i += 1) {
     rebuildSignedTx(feeSat);
     const sizeBytes = Buffer.from(tx.uncheckedSerialize(), 'hex').length;
@@ -10867,7 +10920,7 @@ function buildOrderTimeoutCancelTx({
     rawtx,
     txid: txidFromRaw(rawtx),
     feeSat,
-    feeInputOutpoints: [],
+    feeInputOutpoints: feeUtxos.map((u) => `${String(u.txId || '').trim()}:${Number(u.vout || 0)}`),
   };
 }
 
@@ -10880,21 +10933,44 @@ function buildOrderSellerCancelTx({
   buyerRefundAddress = '',
   excludeOutpoints = null,
 } = {}) {
+  const buyerLockOutpoint = `${String(buyerLockTxid || '').trim()}:${Number(buyerLockVout || 0)}`;
+  const effectiveExcludeOutpoints = Array.from(new Set((Array.isArray(excludeOutpoints) ? excludeOutpoints : [])
+    .concat([buyerLockOutpoint])
+    .map((outpoint) => String(outpoint || '').trim())
+    .filter(Boolean)));
   const { state, hdPrivateKey, utxos } = getSpendableWalletContext(mnemonic, {
     includeUnconfirmed: true,
     maxAncestorDepth: ORDER_MAX_UNCONFIRMED_ANCESTOR_DEPTH,
     forceReload: true,
     allowLocalOwnedChain: true,
     ignoreLocalChainCheck: true,
-    excludeOutpoints,
+    excludeOutpoints: effectiveExcludeOutpoints,
   });
   const sellerChat = deriveChatKeypairFromMnemonic(mnemonic);
   const refundAddress = validateAddress(buyerRefundAddress) ? buyerRefundAddress : getReceiveAddressFromState(state);
   const buyerLockRedeemScript = new bsv.Script(String(buyerLockRedeemScriptHex || '').trim());
+  if (buyerLockRedeemScript.isPublicKeyHashOut && buyerLockRedeemScript.isPublicKeyHashOut()) {
+    throw new Error('Seller cancel is unavailable for standard buyer lock script');
+  }
+  const feeEstimateSat = estimateTxFeeSat({ inputCount: 2, outputCount: 2, feeRate: DEFAULT_FEE_RATE })
+    + FINAL_SIGNED_FEE_SAFETY_SAT
+    + ORDER_CANCEL_FEE_MARGIN_SAT;
+  const feeSelection = selectUtxosForTransaction(utxos, {
+    targetSat: feeEstimateSat,
+    outputCount: 2,
+    feeRate: DEFAULT_FEE_RATE,
+    allowConsolidation: false,
+  });
+  const feeUtxos = Array.isArray(feeSelection?.utxos) ? feeSelection.utxos : [];
+  if (!feeUtxos.length) {
+    throw new Error('Seller cancel requires a wallet fee UTXO; escrow refund cannot pay cancel fee');
+  }
+  const totalFeeInputSat = feeUtxos.reduce((sum, u) => sum + Number(u.satoshis || 0), 0);
+  const changeAddress = getReceiveAddressFromState(state);
   let tx = new bsv.Transaction();
   const rebuildSignedTx = (feeSat) => {
-    const refundSat = Number(buyerLockSats || 0) - Number(feeSat || 0);
-    if (refundSat <= 0) throw new Error('Insufficient spendable balance');
+    const refundSat = Number(buyerLockSats || 0);
+    if (refundSat <= 0) throw new Error('Insufficient order refund amount');
     tx = new bsv.Transaction();
     tx.addInput(createManualInput({
       prevTxId: buyerLockTxid,
@@ -10902,12 +10978,14 @@ function buildOrderSellerCancelTx({
       outputScript: buildOrderEscrowOutputScript(buyerLockRedeemScript),
       satoshis: buyerLockSats,
     }));
+    tx.from(feeUtxos);
     tx.addOutput(new bsv.Transaction.Output({
       script: bsv.Script.buildPublicKeyHashOut(refundAddress),
       satoshis: refundSat,
     }));
-    if (buyerLockRedeemScript.isPublicKeyHashOut && buyerLockRedeemScript.isPublicKeyHashOut()) {
-      throw new Error('Seller cancel is unavailable for standard buyer lock script');
+    const changeSat = totalFeeInputSat - Number(feeSat || 0);
+    if (changeSat >= SAFE_MIN_CHANGE_SAT) {
+      addP2pkhChangeOutput(tx, changeAddress, changeSat);
     }
     const sellerSig = bsv.Transaction.Sighash.sign(
       tx,
@@ -10918,9 +10996,10 @@ function buildOrderSellerCancelTx({
       new bsv.crypto.BN(Number(buyerLockSats || 0)),
     );
     setOrderBuyerLockSellerCancelUnlockScript(tx, 0, sellerSig.toTxFormat().toString('hex'), buyerLockRedeemScriptHex);
+    signTransactionInputsAtOffset(tx, feeUtxos, 1);
     return tx;
   };
-  let feeSat = estimateTxFeeSat({ inputCount: 1, outputCount: 1, feeRate: DEFAULT_FEE_RATE });
+  let feeSat = feeEstimateSat;
   for (let i = 0; i < 8; i += 1) {
     rebuildSignedTx(feeSat);
     const sizeBytes = Buffer.from(tx.uncheckedSerialize(), 'hex').length;
@@ -10934,7 +11013,7 @@ function buildOrderSellerCancelTx({
     rawtx,
     txid: txidFromRaw(rawtx),
     feeSat,
-    feeInputOutpoints: [],
+    feeInputOutpoints: feeUtxos.map((u) => `${String(u.txId || '').trim()}:${Number(u.vout || 0)}`),
   };
 }
 
@@ -11016,7 +11095,9 @@ async function buildOrderSettlementDraft({
   const buyerDepositSats = Math.max(0, Number(buyerInputSats || 0) - unitPriceSats);
   const sellerDepositSats = Math.max(0, Number(sellerInputSats || 0));
   const sellerRefundSat = sellerDepositSats;
-  const buyerRefundBaseSat = safeMode === 'completed' ? buyerDepositSats : Number(buyerInputSats || 0);
+  const buyerRefundBaseSat = safeMode === 'completed'
+    ? buyerDepositSats
+    : Number(buyerInputSats || 0);
   const safeAnchorText = String(anchorText || '').trim();
   const anchorPayloadBytes = safeAnchorText ? Buffer.byteLength(safeAnchorText, 'utf8') : 0;
   if (anchorPayloadBytes > MAX_ANCHOR_PAYLOAD_BYTES) {
@@ -11059,7 +11140,7 @@ async function buildOrderSettlementDraft({
         const ap = preferredFeeOutpointSet.has(getUtxoKey(a).toLowerCase()) ? 1 : 0;
         const bp = preferredFeeOutpointSet.has(getUtxoKey(b).toLowerCase()) ? 1 : 0;
         if (ap !== bp) return bp - ap;
-        return Number(b?.satoshis || 0) - Number(a?.satoshis || 0);
+        return Number(a?.satoshis || 0) - Number(b?.satoshis || 0);
       });
     const feeCandidateDiagnostics = utxos.slice(0, 12).map((utxo) => {
       const txid = String(utxo?.txId || '').trim().toLowerCase();
@@ -11123,9 +11204,7 @@ async function buildOrderSettlementDraft({
     }
     if (feeUtxos.length) tx.from(feeUtxos);
     const feeSatSafe = Math.max(0, Number(feeSat || 0));
-    const buyerRefundSat = feeUtxos.length
-      ? buyerRefundBaseSat
-      : Math.max(0, buyerRefundBaseSat - feeSatSafe);
+    const buyerRefundSat = buyerRefundBaseSat;
     if (safeMode === 'completed') {
       const sellerPayoutSat = unitPriceSats;
       tx.to(sellerReceiveAddress, sellerPayoutSat);
@@ -11190,6 +11269,9 @@ async function buildOrderSettlementDraft({
     sellerSourceRedeemScriptHex: sellerSourceScript.toHex(),
     spendSellerSource: includeSellerSource,
     feeInputOutpoints: feeUtxos.map((u) => `${String(u.txId || '').trim()}:${Number(u.vout || 0)}`),
+    buyerRefundSats: buyerRefundBaseSat,
+    sellerRefundSats: sellerRefundSat,
+    sellerDepositSats,
     feeSat,
   };
 }
@@ -11281,6 +11363,61 @@ function signOrderSettlementDraft({
     txid: txidFromRaw(tx.uncheckedSerialize()),
     signatureCount: Math.min(2, tx.inputs.length),
   };
+}
+
+function base64UrlEncodeBuffer(buf) {
+  return Buffer.from(buf).toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '');
+}
+
+function base64UrlDecodeBuffer(value) {
+  const safe = String(value || '').trim().replace(/-/g, '+').replace(/_/g, '/');
+  const padded = safe + '='.repeat((4 - (safe.length % 4)) % 4);
+  return Buffer.from(padded, 'base64');
+}
+
+function buildOrderSettlementSignaturePackage({ rawtx = '' } = {}) {
+  const rawtxHex = String(rawtx || '').trim();
+  if (!/^[0-9a-f]+$/i.test(rawtxHex) || rawtxHex.length % 2 !== 0) {
+    throw new Error('Invalid settlement draft rawtx');
+  }
+  const rawBytes = Buffer.from(rawtxHex, 'hex');
+  const rawPackage = `b1:${base64UrlEncodeBuffer(rawBytes)}`;
+  let compressedPackage = '';
+  try {
+    compressedPackage = `z1:${base64UrlEncodeBuffer(zlib.deflateRawSync(Buffer.from(rawtxHex, 'utf8')))}`;
+  } catch (_) {
+    compressedPackage = '';
+  }
+  const settlementPackage = compressedPackage && compressedPackage.length < rawPackage.length
+    ? compressedPackage
+    : rawPackage;
+  return {
+    package: settlementPackage,
+    rawtxHexChars: rawtxHex.length,
+    packageChars: settlementPackage.length,
+    encoding: settlementPackage.slice(0, 2),
+  };
+}
+
+function rawtxFromOrderSettlementSignaturePackage(value = '') {
+  const safe = String(value || '').trim();
+  if (!safe) return '';
+  if (/^[0-9a-f]+$/i.test(safe) && safe.length % 2 === 0) return safe;
+  const sep = safe.indexOf(':');
+  if (sep <= 0) throw new Error('Invalid settlement signature package');
+  const encoding = safe.slice(0, sep);
+  const body = safe.slice(sep + 1);
+  if (encoding === 'b1') return base64UrlDecodeBuffer(body).toString('hex');
+  if (encoding === 'z1') return zlib.inflateRawSync(base64UrlDecodeBuffer(body)).toString('utf8');
+  throw new Error(`Unsupported settlement signature package encoding: ${encoding}`);
+}
+
+function estimateOrderSettlementPackageCharsFromRawtxHexChars(rawtxHexChars = 0) {
+  const rawBytes = Math.ceil(Math.max(0, Number(rawtxHexChars || 0)) / 2);
+  return 3 + Math.ceil(rawBytes * 4 / 3);
 }
 
 const MANUAL_WALLET_RECOVERY_SOURCES = new Set([
@@ -12079,7 +12216,7 @@ async function sendBsv({ mnemonic, to, amountBsv, sendAll = false, note, onStage
       feePlan = finalizeFeeAndSign(tx, utxos, changeAddress, DEFAULT_FEE_RATE, SAFE_MIN_CHANGE_SAT);
     }
 
-    const rawtx = tx.serialize();
+    const rawtx = serializeSignedTransaction(tx);
     const inspected = inspectRawTx(rawtx) || {};
     preparedRawtx = String(rawtx || '');
     preparedTxid = String(inspected.txid || txidFromRaw(rawtx) || '').trim().toLowerCase();
@@ -12340,7 +12477,7 @@ async function anchorDataOnChain({
   const feePlan = finalizeFeeAndSign(tx, utxos, changeAddress, DEFAULT_FEE_RATE, SAFE_MIN_CHANGE_SAT);
   const feeSat = Number(feePlan.feeSat || 0);
 
-  const rawtx = tx.serialize();
+  const rawtx = serializeSignedTransaction(tx);
   const policyValidation = validateRawTxPolicy(rawtx, {
     minStandardOutputSat: SAFE_MIN_CHANGE_SAT,
     minDataOutputSat: ANCHOR_DATA_OUTPUT_SAT,
@@ -12534,7 +12671,7 @@ async function anchorDataBatchOnChain({
     const changeAddress = new bsv.Address(getReceiveAddressFromState(state), NETWORK);
     const feePlan = finalizeFeeAndSign(tx, utxos, changeAddress, DEFAULT_FEE_RATE, SAFE_MIN_CHANGE_SAT);
     const feeSat = Number(feePlan.feeSat || 0);
-    const rawtx = tx.serialize();
+    const rawtx = serializeSignedTransaction(tx);
     const policyValidation = validateRawTxPolicy(rawtx, {
       minStandardOutputSat: SAFE_MIN_CHANGE_SAT,
       minDataOutputSat: ANCHOR_DATA_OUTPUT_SAT,
@@ -12810,6 +12947,81 @@ function extractWalletTxIoFacts(rawtx, contextByTxid = null) {
   };
 }
 
+function classifyWalletTransactionType({ note = '', anchorEventType = '', contextKind = '' } = {}) {
+  const tokens = [note, anchorEventType, contextKind].map((value) => String(value || '').trim()).filter(Boolean);
+  const haystack = tokens.join('|');
+  if (/(^|[:|])order_/i.test(haystack) || /^order_/i.test(haystack)) {
+    return { transactionType: 'order_transfer', transactionTypeLabel: '订单转账' };
+  }
+  if (
+    /^market:/i.test(note)
+    || /^(profile_|product_|category_|chat_|wallet_key_bind)/i.test(anchorEventType)
+    || /^(profile_|product_|category_|chat_|wallet_key_bind)/i.test(contextKind)
+  ) {
+    return { transactionType: 'data_anchor', transactionTypeLabel: '数据上链' };
+  }
+  return { transactionType: 'wallet_transfer', transactionTypeLabel: '普通转账' };
+}
+
+function buildOrderSettlementBreakdown(facts = null, anchorEventType = '', contextKind = '') {
+  if (!facts || typeof facts !== 'object') return null;
+  const isOrderConfirm = String(anchorEventType || contextKind || '').trim() === 'order_confirm';
+  if (!isOrderConfirm) return null;
+  const outputs = Array.isArray(facts.outputs) ? facts.outputs : [];
+  const first = outputs[0] || null;
+  const second = outputs[1] || null;
+  const third = outputs[2] || null;
+  const walletOutputSat = Math.max(0, Number(facts.walletOutputSat || 0));
+  const walletInputSat = Math.max(0, Number(facts.walletInputSat || 0));
+
+  if (first?.isWalletOwned === true) {
+    const productIncomeSat = Math.max(0, Number(first.satoshis || 0));
+    const depositRefundSat = third?.isWalletOwned === true ? Math.max(0, Number(third.satoshis || 0)) : 0;
+    const assignedOutputIndexes = new Set([Number(first.vout), Number(third?.vout)]);
+    const changeSat = outputs
+      .filter((row) => row?.isWalletOwned === true && !assignedOutputIndexes.has(Number(row.vout)))
+      .reduce((sum, row) => sum + Math.max(0, Number(row?.satoshis || 0)), 0);
+    const feeNetSat = Math.max(0, Number(facts.feeSat || 0));
+    const businessNetSat = productIncomeSat + depositRefundSat - feeNetSat;
+    return {
+      role: 'seller',
+      roleLabel: '卖家',
+      productIncomeSat,
+      depositRefundSat,
+      changeSat,
+      feeNetSat,
+      displayFeeNetSat: feeNetSat,
+      walletReceivedSat: walletOutputSat,
+      walletSpentSat: walletInputSat,
+      netSat: businessNetSat,
+      transactionNetSat: walletOutputSat - walletInputSat,
+    };
+  }
+
+  if (second?.isWalletOwned === true) {
+    const productSpendSat = Math.max(0, Number(first?.satoshis || 0));
+    const buyerDepositRefundSat = Math.max(0, Number(second.satoshis || 0));
+    const assignedOutputIndexes = new Set([Number(second.vout)]);
+    const changeSat = outputs
+      .filter((row) => row?.isWalletOwned === true && !assignedOutputIndexes.has(Number(row.vout)))
+      .reduce((sum, row) => sum + Math.max(0, Number(row?.satoshis || 0)), 0);
+    const feeNetSat = Math.max(0, walletInputSat - productSpendSat - buyerDepositRefundSat - changeSat);
+    return {
+      role: 'buyer',
+      roleLabel: '买家',
+      productSpendSat,
+      buyerDepositRefundSat,
+      changeSat,
+      feeNetSat,
+      walletReceivedSat: walletOutputSat,
+      walletSpentSat: walletInputSat,
+      netSat: walletOutputSat - walletInputSat,
+    };
+  }
+
+  return null;
+}
+
 function buildWalletBusinessSnapshot(page = 1, pageSize = DEFAULT_HISTORY_PAGE_SIZE) {
   const walletState = getWalletStateSnapshotInternal();
   const walletKey = getReceiveAddressFromState(walletState);
@@ -12849,7 +13061,7 @@ function buildWalletBusinessSnapshot(page = 1, pageSize = DEFAULT_HISTORY_PAGE_S
       if (tb !== ta) return tb - ta;
       return String(a?.txid || '').localeCompare(String(b?.txid || ''));
     });
-  const candidateLimit = Math.max(20, Math.min(60, Math.max(Number(page || 1) * Number(pageSize || DEFAULT_HISTORY_PAGE_SIZE) * 2, 20)));
+  const candidateLimit = Math.max(80, Math.min(200, Math.max(Number(page || 1) * Number(pageSize || DEFAULT_HISTORY_PAGE_SIZE) * 6, 80)));
   const txids = txRowsSorted
     .slice(0, candidateLimit)
     .map((row) => String(row?.txid || '').trim().toLowerCase())
@@ -12866,6 +13078,8 @@ function buildWalletBusinessSnapshot(page = 1, pageSize = DEFAULT_HISTORY_PAGE_S
     const contextKind = String(ctx?.kind || '').trim();
     const note = String(notes?.[safeTxid]?.note || (anchorEventType ? `market:${anchorEventType}` : '') || (contextKind ? `market:${contextKind}` : '')).trim();
     const facts = ctx?.rawtx ? extractWalletTxIoFacts(ctx.rawtx, null) : null;
+    const txType = classifyWalletTransactionType({ note, anchorEventType, contextKind });
+    const orderBreakdown = buildOrderSettlementBreakdown(facts, anchorEventType, contextKind);
     let kind = '';
     let amountSat = 0;
     let balanceImpactSat = 0;
@@ -12928,12 +13142,27 @@ function buildWalletBusinessSnapshot(page = 1, pageSize = DEFAULT_HISTORY_PAGE_S
     if (kind === 'self_consolidation_fee') label = '归集手续费';
     if (kind === 'external_spend' && (note === 'market-send' || note.startsWith('market:'))) label = '上链支出';
     if (kind === 'external_receive' && note === 'market:order_confirm') label = '商品收入';
+    if (txType.transactionType === 'order_transfer' && kind !== 'external_receive') label = '订单支出';
+    if (orderBreakdown?.role === 'seller') {
+      kind = 'external_receive';
+      label = '商品收入';
+      amountSat = Math.max(0, Math.abs(Number(orderBreakdown.netSat || 0)));
+      balanceImpactSat = Number(orderBreakdown.netSat || 0);
+    } else if (orderBreakdown?.role === 'buyer') {
+      kind = 'external_spend';
+      label = '订单支出';
+      const productSpendSat = Math.max(0, Number(orderBreakdown.productSpendSat || 0));
+      amountSat = productSpendSat > 0 ? productSpendSat : Math.max(0, Math.abs(Number(orderBreakdown.netSat || 0)));
+      balanceImpactSat = -amountSat;
+    }
     const confirmed = Boolean(txRow?.confirmed || ctx?.confirmed);
     const lastSeenAt = String(txRow?.lastSeenAt || ctx?.lastSeenAt || notes?.[safeTxid]?.updatedAt || nowIso);
     if (!confirmed) {
-      const signedDelta = kind === 'external_receive'
-        ? Math.max(0, Math.trunc(balanceImpactSat || amountSat))
-        : -Math.max(0, Math.trunc(balanceImpactSat || amountSat));
+      const signedDelta = orderBreakdown
+        ? Math.trunc(Number(balanceImpactSat || 0))
+        : (kind === 'external_receive'
+          ? Math.max(0, Math.trunc(balanceImpactSat || amountSat))
+          : -Math.max(0, Math.trunc(balanceImpactSat || amountSat)));
       pendingBusinessDeltaSat += signedDelta;
     }
     items.push({
@@ -12941,13 +13170,30 @@ function buildWalletBusinessSnapshot(page = 1, pageSize = DEFAULT_HISTORY_PAGE_S
       txid: safeTxid,
       kind,
       amountSat: Math.max(0, Math.trunc(amountSat)),
+      netSat: orderBreakdown
+        ? Math.trunc(Number(balanceImpactSat || 0))
+        : (kind === 'external_receive'
+          ? Math.max(0, Math.trunc(balanceImpactSat || amountSat))
+          : -Math.max(0, Math.trunc(balanceImpactSat || amountSat))),
       confirmed,
       label,
+      transactionType: txType.transactionType,
+      transactionTypeLabel: txType.transactionTypeLabel,
+      orderBreakdown,
       note,
       lastSeenAt,
     });
   }
   items.sort((a, b) => {
+    const priority = (row) => {
+      const txType = String(row?.transactionType || '').trim();
+      if (txType === 'wallet_transfer') return 0;
+      if (txType === 'order_transfer') return 1;
+      return 2;
+    };
+    const pa = priority(a);
+    const pb = priority(b);
+    if (pa !== pb) return pa - pb;
     const ta = Date.parse(String(a?.lastSeenAt || '')) || 0;
     const tb = Date.parse(String(b?.lastSeenAt || '')) || 0;
     if (tb !== ta) return tb - ta;
@@ -13038,9 +13284,12 @@ module.exports = {
   buildOrderSellerCancelTx,
   buildOrderSettlementDraft,
   signOrderSettlementDraft,
+  buildOrderSettlementSignaturePackage,
+  rawtxFromOrderSettlementSignaturePackage,
   computeOrderSellerDepositSats,
   estimateOrderSettlementDraftRawtxBytes,
   estimateOrderSettlementDraftRawtxHexChars: (options = {}) => estimateOrderSettlementDraftRawtxBytes(options) * 2,
+  estimateOrderSettlementPackageCharsFromRawtxHexChars,
   estimateOrderSettlementFeeReserveSat,
   estimateAnchorDataFeeReserveSat,
   ORDER_ANCHOR_OUTPUT_SAT,
@@ -13076,6 +13325,7 @@ module.exports = {
   transactionTouchesWalletWithHints,
   buildConfirmedBlockTxSummary,
   applyConfirmedTxSummaryToSpvIndex,
+  reconcileKnownConfirmedSpendersInSpvIndex,
   clearWalletLocalIndex,
   rebuildWalletIndexFromLocalData,
   rebuildLocalIndexFromQueueRawtxs,

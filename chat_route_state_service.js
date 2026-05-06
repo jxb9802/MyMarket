@@ -28,6 +28,7 @@ function createChatRouteStateService(deps = {}) {
     state.chatConfig.publicPort = Math.max(1, Math.min(65535, Number(body?.publicPort || state.chatConfig.publicPort || state.chatConfig.listenPort)));
     state.chatConfig.allowOnchainInvite = body?.allowOnchainInvite !== undefined ? body.allowOnchainInvite === true : state.chatConfig.allowOnchainInvite;
     state.chatConfig.autoPublishEndpoint = body?.autoPublishEndpoint !== undefined ? body.autoPublishEndpoint === true : state.chatConfig.autoPublishEndpoint;
+    state.chatConfig.publicNodeAuto = body?.publicNodeAuto !== undefined ? body.publicNodeAuto === true : state.chatConfig.publicNodeAuto !== false;
     if (!state.chatConfig.manualPeerEndpoints || typeof state.chatConfig.manualPeerEndpoints !== 'object') {
       state.chatConfig.manualPeerEndpoints = {};
     }

@@ -16,7 +16,17 @@ const DEFAULT_CHANNEL_CHUNK_BYTES = 12 * 1024;
 const DEFAULT_CHANNEL_MAX_FRAME_BYTES = 12 * 1024 * 1024;
 
 function cloneIceServers(iceServers) {
-  return (Array.isArray(iceServers) ? iceServers : DEFAULT_ICE_SERVERS).map((entry) => ({ ...entry }));
+  const input = Array.isArray(iceServers) ? iceServers.filter(Boolean) : [];
+  const merged = input.length > 0
+    ? [...input, ...DEFAULT_ICE_SERVERS]
+    : DEFAULT_ICE_SERVERS;
+  const seen = new Set();
+  return merged.map((entry) => ({ ...entry })).filter((entry) => {
+    const key = JSON.stringify(entry);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function normalizeString(value) {
