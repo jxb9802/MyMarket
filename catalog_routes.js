@@ -214,6 +214,12 @@ function registerCatalogRoutes(app, deps = {}) {
     return null;
   }
 
+  function isCurrentMerchantCatalogOwner(row, currentMerchantId) {
+    if (!row || typeof row !== 'object') return false;
+    if (row.ownedByCurrentWallet === true) return true;
+    return String(row.merchantId || '').trim() === String(currentMerchantId || '').trim();
+  }
+
   async function persistCatalogProjectionNow(state, reason = 'catalog_route') {
     await catalogDomain.emitCatalogSnapshot({
       categories: Array.isArray(state?.categories) ? state.categories : [],
@@ -424,7 +430,7 @@ function registerCatalogRoutes(app, deps = {}) {
       const name = String(req.body?.name || '').trim();
       const category = state.categories.find((c) => c.id === id);
       if (!category) return fail(res, 'Category not found', 404);
-      if (String(category.merchantId || '') !== String(currentMerchantId || '')) return fail(res, 'Cannot modify other merchant category', 403);
+      if (!isCurrentMerchantCatalogOwner(category, currentMerchantId)) return fail(res, 'Cannot modify other merchant category', 403);
       if (!name) return fail(res, 'Name is required');
       if (merchantCategoryNameExists(state, currentMerchantId, name, id)) return fail(res, 'Category name already exists');
       const nowIso = new Date().toISOString();
@@ -449,8 +455,8 @@ function registerCatalogRoutes(app, deps = {}) {
       const id = String(req.body?.id || '');
       const category = state.categories.find((c) => c.id === id);
       if (!category) return fail(res, 'Category not found', 404);
-      if (String(category.merchantId || '') !== String(currentMerchantId || '')) return fail(res, 'Cannot modify other merchant category', 403);
-      if (state.products.some((p) => p.categoryId === id && !p.deleted && String(p.merchantId || '') === String(currentMerchantId || ''))) return fail(res, 'Category has active products');
+      if (!isCurrentMerchantCatalogOwner(category, currentMerchantId)) return fail(res, 'Cannot modify other merchant category', 403);
+      if (state.products.some((p) => p.categoryId === id && !p.deleted && isCurrentMerchantCatalogOwner(p, currentMerchantId))) return fail(res, 'Category has active products');
       if (String(category.localStatus || '') === 'new') {
         state.categories = state.categories.filter((c) => c.id !== id);
 	        queueLocalChange(state, 'category_delete', {
@@ -536,7 +542,7 @@ function registerCatalogRoutes(app, deps = {}) {
     const id = String(req.body?.id || '');
     const product = state.products.find((p) => p.id === id);
     if (!product) return fail(res, 'Product not found', 404);
-    if (String(product.merchantId || '') !== String(currentMerchantId || '')) return fail(res, 'Cannot modify other merchant product', 403);
+    if (!isCurrentMerchantCatalogOwner(product, currentMerchantId)) return fail(res, 'Cannot modify other merchant product', 403);
 
     if (action === 'edit') {
       const title = String(req.body?.title || '').trim();
@@ -556,7 +562,7 @@ function registerCatalogRoutes(app, deps = {}) {
       if (categoryIdRaw) {
         const category = resolveCategoryFromStateOrPending(state, categoryIdRaw, currentMerchantId);
         if (!category) return fail(res, 'Category not found', 404);
-        if (String(category.merchantId || '') !== String(currentMerchantId || '')) return fail(res, 'Cannot use other merchant category', 403);
+        if (!isCurrentMerchantCatalogOwner(category, currentMerchantId)) return fail(res, 'Cannot use other merchant category', 403);
         nextCategoryId = categoryIdRaw;
       }
       const nowIso = new Date().toISOString();

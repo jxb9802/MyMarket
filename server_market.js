@@ -2,6 +2,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
+const zlib = require('zlib');
 const { fork } = require('child_process');
 const axios = require('axios');
 const QRCode = require('qrcode');
@@ -114,6 +115,15 @@ function requireWithFallback(name) {
 }
 const bsvRaw = requireWithFallback('bsv');
 const bsv = bsvRaw && bsvRaw.default ? bsvRaw.default : bsvRaw;
+let bsvSdkRaw = null;
+try {
+  bsvSdkRaw = requireWithFallback('@bsv/sdk');
+} catch (_) {
+  bsvSdkRaw = null;
+}
+const BsvSdkMerklePath = (bsvSdkRaw && (bsvSdkRaw.MerklePath || bsvSdkRaw.default?.MerklePath)) || null;
+const BOOTSTRAP_INDEX_GITHUB_REPO = String(process.env.BSV_MARKET_BOOTSTRAP_INDEX_REPO || 'jxb9802/MyMarket').replace(/^\/+|\/+$/g, '');
+const BOOTSTRAP_INDEX_GITHUB_TAG = String(process.env.BSV_MARKET_BOOTSTRAP_INDEX_TAG || 'bootstrap-index-latest').trim();
 const HEADLESS_RUNTIME = String(process.env.BSV_MARKET_HEADLESS_RUNTIME || '0') === '1';
 const DISABLE_STARTUP_CHAIN_SYNC = String(process.env.BSV_MARKET_DISABLE_STARTUP_CHAIN_SYNC || '0') === '1';
 function createNoopMiddleware() {
@@ -4763,6 +4773,499 @@ function getEffectiveAnchorRows(state, options = {}) {
   return dedupeAnchorRows([...legacyGlobalRows, ...localOverlay, ...remotePendingOrderRows], options.limit || 0);
 }
 
+function readBootstrapJsonFile(filePath) {
+  const safePath = path.resolve(String(filePath || '').trim());
+  if (!safePath || !fs.existsSync(safePath)) throw new Error(`Bootstrap index file not found: ${safePath}`);
+  const buf = fs.readFileSync(safePath);
+  const jsonText = safePath.endsWith('.gz') ? zlib.gunzipSync(buf).toString('utf8') : buf.toString('utf8');
+  return JSON.parse(jsonText);
+}
+
+function sha256FileHex(filePath) {
+  return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
+}
+
+function sha256BufferHex(buf) {
+  return crypto.createHash('sha256').update(buf).digest('hex');
+}
+
+function canonicalizeBootstrapPayload(value) {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(canonicalizeBootstrapPayload).join(',')}]`;
+  return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalizeBootstrapPayload(value[key])}`).join(',')}}`;
+}
+
+function sha256BootstrapPayload(value) {
+  return crypto.createHash('sha256').update(canonicalizeBootstrapPayload(value)).digest('hex');
+}
+
+function sha256JsonPayload(value) {
+  return crypto.createHash('sha256').update(JSON.stringify(value && typeof value === 'object' ? value : {})).digest('hex');
+}
+
+function getBootstrapBhsHeaderHash(height) {
+  const safeHeight = Math.max(0, Number(height || 0));
+  if (!safeHeight) return '';
+  const projected = String(getBhsTrustedHeadersMap().get(safeHeight) || '').trim().toLowerCase();
+  if (projected) return projected;
+  try {
+    const file = path.join(marketDb.getDataDir(), 'bhs_state.json');
+    if (!fs.existsSync(file)) return '';
+    const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
+    return String(raw?.headers?.[String(safeHeight)]?.hash || '').trim().toLowerCase();
+  } catch (_) {
+    return '';
+  }
+}
+
+function findBootstrapAnchorInRawtx(rawtx, expectedEventType) {
+  const tx = new bsv.Transaction(rawtx);
+  const matches = [];
+  for (const output of tx.outputs || []) {
+    const parsed = parseAnchorFromOutput(output);
+    if (!parsed?.parsed) continue;
+    const eventType = String(parsed.parsed.eventType || '').trim();
+    if (expectedEventType && eventType !== String(expectedEventType || '').trim()) continue;
+    matches.push(parsed.parsed);
+  }
+  return {
+    tx,
+    anchor: matches[0] || null,
+    matchCount: matches.length,
+  };
+}
+
+function verifyBootstrapIndexEntry(entry = {}) {
+  const eventType = String(entry.eventType || '').trim();
+  const txid = String(entry.txid || '').trim().toLowerCase();
+  const height = Math.max(0, Number(entry.height || 0));
+  const blockHash = String(entry.blockHash || '').trim().toLowerCase();
+  const rawtx = String(entry.rawtx || '').trim().toLowerCase();
+  const proofHex = String(entry.proofHex || '').trim().toLowerCase();
+  const errors = [];
+  const warnings = [];
+  if (!/^[0-9a-f]{64}$/i.test(txid)) errors.push('invalid_txid');
+  if (!height) errors.push('missing_height');
+  if (!/^[0-9a-f]{64}$/i.test(blockHash)) errors.push('invalid_block_hash');
+  if (!rawtx || !/^[0-9a-f]+$/i.test(rawtx) || rawtx.length % 2 !== 0) errors.push('invalid_rawtx');
+  if (!proofHex || !/^[0-9a-f]+$/i.test(proofHex)) errors.push('missing_or_invalid_proof');
+  const localBlockHash = getBootstrapBhsHeaderHash(height);
+  if (localBlockHash && localBlockHash !== blockHash) errors.push('bhs_block_hash_mismatch');
+
+  let tx = null;
+  let anchor = null;
+  if (rawtx) {
+    try {
+      const found = findBootstrapAnchorInRawtx(rawtx, eventType);
+      tx = found.tx;
+      anchor = found.anchor;
+      const actualTxid = String(tx.id || '').trim().toLowerCase();
+      if (actualTxid !== txid) errors.push('rawtx_txid_mismatch');
+      if (!anchor) errors.push('anchor_marker_missing');
+    } catch (_) {
+      errors.push('rawtx_parse_failed');
+    }
+  }
+
+  let payload = {};
+  if (anchor?.payload && typeof anchor.payload === 'object') {
+    payload = normalizeEventPayload(eventType, anchor.payload, String(entry.updatedAt || ''));
+    const expectedPayloadHash = String(entry.payloadHash || '').trim().toLowerCase();
+    if (expectedPayloadHash) {
+      const normalizedHash = sha256BootstrapPayload(payload);
+      const rawHash = sha256BootstrapPayload(anchor.payload);
+      const normalizedJsonHash = sha256JsonPayload(payload);
+      const rawJsonHash = sha256JsonPayload(anchor.payload);
+      if (
+        expectedPayloadHash !== normalizedHash
+        && expectedPayloadHash !== rawHash
+        && expectedPayloadHash !== normalizedJsonHash
+        && expectedPayloadHash !== rawJsonHash
+      ) warnings.push('payload_hash_mismatch');
+    }
+  }
+
+  let proofRoot = '';
+  if (proofHex && BsvSdkMerklePath) {
+    try {
+      const merklePath = BsvSdkMerklePath.fromHex(proofHex);
+      const proofHeight = Math.max(0, Number(merklePath?.blockHeight || entry.proofBlockHeight || 0));
+      if (proofHeight && proofHeight !== height) errors.push('proof_height_mismatch');
+      proofRoot = String(merklePath.computeRoot(txid) || '').trim().toLowerCase();
+      const expectedRoot = String(entry.proofMerkleRoot || '').trim().toLowerCase();
+      if (expectedRoot && proofRoot !== expectedRoot) errors.push('proof_root_mismatch');
+    } catch (_) {
+      errors.push('proof_parse_failed');
+    }
+  } else if (!BsvSdkMerklePath) {
+    errors.push('proof_sdk_unavailable');
+  }
+  if (entry.proofVerified !== true) errors.push('proof_not_marked_verified');
+
+  return {
+    ok: errors.length === 0,
+    errors,
+    warnings,
+    tx,
+    txid,
+    rawtx,
+    eventType,
+    payload,
+    height,
+    blockHash,
+    proofRoot,
+  };
+}
+
+function bootstrapEntryToAnchorRow(entry, verified) {
+  return {
+    ts: String(entry.updatedAt || entry.firstSeenAt || new Date().toISOString()),
+    eventType: verified.eventType,
+    payload: verified.payload,
+    txid: verified.txid,
+    rawtx: verified.rawtx,
+    node: String(entry.sourceNode || entry.source || 'bootstrap_index_release'),
+    height: verified.height,
+    blockHash: verified.blockHash,
+    eventIndex: Number.isFinite(Number(entry.txIndex)) ? Number(entry.txIndex) : Number(entry.eventIndex || 0),
+    confirmed: true,
+  };
+}
+
+function resolveBootstrapIndexInput(options = {}) {
+  const manifestPath = String(options.manifestPath || options.manifest || '').trim();
+  const indexPath = String(options.indexPath || options.index || '').trim();
+  if (manifestPath) {
+    const safeManifest = path.resolve(manifestPath);
+    const manifest = readBootstrapJsonFile(safeManifest);
+    const full = manifest?.full && typeof manifest.full === 'object' ? manifest.full : {};
+    const fullFile = indexPath
+      ? path.resolve(indexPath)
+      : path.resolve(path.dirname(safeManifest), String(full.indexFile || ''));
+    if (!fullFile || !fs.existsSync(fullFile)) throw new Error('Bootstrap release full index asset not found');
+    if (full.indexSha256) {
+      const actual = sha256FileHex(fullFile);
+      if (String(full.indexSha256 || '').trim().toLowerCase() !== actual) {
+        throw new Error(`Bootstrap release index sha256 mismatch: ${actual}`);
+      }
+    }
+    return { manifestPath: safeManifest, manifest, indexPath: fullFile };
+  }
+  if (indexPath) return { manifestPath: '', manifest: null, indexPath: path.resolve(indexPath) };
+  const envManifest = String(process.env.BSV_MARKET_BOOTSTRAP_INDEX_MANIFEST || '').trim();
+  if (envManifest && fs.existsSync(path.resolve(envManifest))) {
+    return resolveBootstrapIndexInput({ manifestPath: path.resolve(envManifest) });
+  }
+  const packagedManifest = path.join(__dirname, 'bootstrap_index', 'manifest.json');
+  if (fs.existsSync(packagedManifest)) return resolveBootstrapIndexInput({ manifestPath: packagedManifest });
+  const cachedManifest = path.join(marketDb.getDataDir(), 'bootstrap_index_release', 'manifest.json');
+  if (fs.existsSync(cachedManifest)) return resolveBootstrapIndexInput({ manifestPath: cachedManifest });
+  const devManifest = path.join(__dirname, 'dist', 'bootstrap_index_release_full', 'manifest.json');
+  if (fs.existsSync(devManifest)) return resolveBootstrapIndexInput({ manifestPath: devManifest });
+  throw new Error('Bootstrap index manifest/index path is required');
+}
+
+async function downloadBootstrapIndexReleaseFromGithub(options = {}) {
+  if (String(process.env.BSV_MARKET_DISABLE_BOOTSTRAP_INDEX_GITHUB || '0') === '1') {
+    throw new Error('GitHub bootstrap index download is disabled');
+  }
+  const repo = String(options.repo || BOOTSTRAP_INDEX_GITHUB_REPO || '').replace(/^\/+|\/+$/g, '');
+  const tag = String(options.tag || BOOTSTRAP_INDEX_GITHUB_TAG || '').trim();
+  if (!repo || !tag) throw new Error('Bootstrap index GitHub repo/tag is not configured');
+  const cacheDir = path.join(marketDb.getDataDir(), 'bootstrap_index_release');
+  fs.mkdirSync(cacheDir, { recursive: true });
+  const headers = {
+    Accept: 'application/vnd.github+json',
+    'X-GitHub-Api-Version': '2022-11-28',
+  };
+  const token = String(process.env.GITHUB_TOKEN || process.env.BSV_MARKET_GITHUB_TOKEN || '').trim();
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const releaseUrl = `https://api.github.com/repos/${repo}/releases/tags/${encodeURIComponent(tag)}`;
+  const { data: release } = await axios.get(releaseUrl, { headers, timeout: 20000 });
+  const assets = Array.isArray(release?.assets) ? release.assets : [];
+  const manifestAsset = assets.find((asset) => String(asset?.name || '') === 'manifest.json');
+  if (!manifestAsset?.browser_download_url) throw new Error('Bootstrap index manifest asset not found on GitHub release');
+  const manifestRes = await axios.get(manifestAsset.browser_download_url, { responseType: 'arraybuffer', timeout: 30000 });
+  const manifestBuf = Buffer.from(manifestRes.data);
+  const manifest = JSON.parse(manifestBuf.toString('utf8'));
+  const fullName = String(manifest?.full?.indexFile || '').trim();
+  const expectedSha = String(manifest?.full?.indexSha256 || '').trim().toLowerCase();
+  if (!fullName || !expectedSha) throw new Error('Bootstrap index manifest is missing full index metadata');
+  const fullAsset = assets.find((asset) => String(asset?.name || '') === fullName);
+  if (!fullAsset?.browser_download_url) throw new Error(`Bootstrap full index asset not found: ${fullName}`);
+  const fullRes = await axios.get(fullAsset.browser_download_url, { responseType: 'arraybuffer', timeout: 60000 });
+  const fullBuf = Buffer.from(fullRes.data);
+  const actualSha = sha256BufferHex(fullBuf);
+  if (actualSha !== expectedSha) throw new Error(`Bootstrap full index sha256 mismatch: ${actualSha}`);
+  const manifestPath = path.join(cacheDir, 'manifest.json');
+  const fullPath = path.join(cacheDir, fullName);
+  fs.writeFileSync(manifestPath, manifestBuf);
+  fs.writeFileSync(fullPath, fullBuf);
+  appendMarketDebug('bootstrap_index_github_downloaded', {
+    repo,
+    tag,
+    manifestBytes: manifestBuf.length,
+    fullIndex: fullName,
+    fullBytes: fullBuf.length,
+    toHeight: Number(manifest.toHeight || 0),
+  });
+  return resolveBootstrapIndexInput({ manifestPath });
+}
+
+async function resolveBootstrapIndexInputAuto(options = {}) {
+  try {
+    return resolveBootstrapIndexInput(options);
+  } catch (localError) {
+    if (options.noDownload === true) throw localError;
+    return downloadBootstrapIndexReleaseFromGithub(options);
+  }
+}
+
+function bootstrapIndexReleaseAvailable(options = {}) {
+  try {
+    resolveBootstrapIndexInput(options);
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+function getBootstrapIndexReleaseCoverage(options = {}) {
+  const input = resolveBootstrapIndexInput(options);
+  const manifest = input.manifest && typeof input.manifest === 'object'
+    ? input.manifest
+    : (readBootstrapJsonFile(input.indexPath).manifest || {});
+  return {
+    ...input,
+    fromHeight: Math.max(0, Number(manifest.fromHeight || 0)),
+    toHeight: Math.max(0, Number(manifest.toHeight || 0)),
+    tipHash: String(manifest.tipHash || '').trim().toLowerCase(),
+    eventCount: Math.max(0, Number(manifest.eventCount || 0)),
+    txCount: Math.max(0, Number(manifest.txCount || 0)),
+    productionReady: manifest.productionReady === true,
+  };
+}
+
+function normalizeBootstrapIndexSyncMeta(meta = null) {
+  const raw = meta && typeof meta === 'object' ? meta : {};
+  const toHeight = Math.max(0, Number(raw.toHeight || raw.releaseToHeight || raw.recoveredHeight || 0));
+  if (!toHeight) return null;
+  return {
+    version: 1,
+    source: String(raw.source || 'bootstrap_index').trim() || 'bootstrap_index',
+    fromHeight: Math.max(0, Number(raw.fromHeight || 0)),
+    toHeight,
+    recoveredHeight: toHeight,
+    tipHash: String(raw.tipHash || '').trim().toLowerCase(),
+    eventCount: Math.max(0, Number(raw.eventCount || 0)),
+    warningCount: Math.max(0, Number(raw.warningCount || raw.warnings || 0)),
+    importedAt: String(raw.importedAt || raw.updatedAt || ''),
+  };
+}
+
+function getSyncBootstrapIndexMeta(syncLike = {}) {
+  return normalizeBootstrapIndexSyncMeta(
+    syncLike?.bootstrapIndex
+    || syncLike?.sourceStats?.bootstrapIndex
+    || null
+  );
+}
+
+function setSyncBootstrapIndexMeta(syncLike = {}, meta = null) {
+  if (!syncLike || typeof syncLike !== 'object') return null;
+  const normalized = normalizeBootstrapIndexSyncMeta(meta);
+  if (!normalized) return null;
+  if (!syncLike.sourceStats || typeof syncLike.sourceStats !== 'object') syncLike.sourceStats = {};
+  syncLike.sourceStats.bootstrapIndex = normalized;
+  syncLike.bootstrapIndex = normalized;
+  return normalized;
+}
+
+async function maybeApplyBootstrapIndexForBusinessSync(state, options = {}) {
+  if (String(process.env.BSV_MARKET_DISABLE_BOOTSTRAP_INDEX_AUTO || '0') === '1') {
+    return { applied: false, reason: 'disabled' };
+  }
+  if (!state || typeof state !== 'object') return { applied: false, reason: 'missing_state' };
+  if (!state.sync || typeof state.sync !== 'object') state.sync = {};
+  let coverage = null;
+  try {
+    const input = await resolveBootstrapIndexInputAuto(options);
+    coverage = getBootstrapIndexReleaseCoverage(input);
+  } catch (error) {
+    return { applied: false, reason: 'release_unavailable', error: String(error?.message || error || '') };
+  }
+  const bootstrapHeight = Math.max(0, Number(state.sync.bootstrapHeight || FIXED_SYNC_BOOTSTRAP_HEIGHT));
+  const releaseToHeight = Math.max(0, Number(coverage.toHeight || 0));
+  const localBusinessHeight = Math.max(
+    0,
+    Number(state.sync.localHeight || 0),
+    Number(state.sync.fixedSyncLastHeight || 0),
+  );
+  if (!releaseToHeight || releaseToHeight < bootstrapHeight) {
+    return { applied: false, reason: 'release_out_of_range', releaseToHeight, bootstrapHeight };
+  }
+  if (localBusinessHeight >= releaseToHeight) {
+    return { applied: false, reason: 'already_covered', localBusinessHeight, releaseToHeight };
+  }
+  const localTipHash = getBootstrapBhsHeaderHash(releaseToHeight);
+  if (!localTipHash) return { applied: false, reason: 'bhs_not_ready', releaseToHeight };
+  if (coverage.tipHash && localTipHash !== coverage.tipHash) {
+    return {
+      applied: false,
+      reason: 'bhs_tip_hash_mismatch',
+      releaseToHeight,
+      expected: coverage.tipHash,
+      actual: localTipHash,
+    };
+  }
+  const imported = await importBootstrapIndexRelease({
+    manifestPath: coverage.manifestPath,
+    indexPath: coverage.indexPath,
+  });
+  const now = new Date().toISOString();
+  state.sync.bootstrapHeight = bootstrapHeight;
+  state.sync.fixedSyncLastHeight = Math.max(Number(state.sync.fixedSyncLastHeight || 0), releaseToHeight);
+  state.sync.localHeight = Math.max(Number(state.sync.localHeight || 0), releaseToHeight);
+  state.sync.targetHeight = Math.max(Number(state.sync.targetHeight || 0), releaseToHeight);
+  state.sync.scannedFrom = bootstrapHeight;
+  state.sync.lastP2PAdvanceAt = now;
+  const meta = setSyncBootstrapIndexMeta(state.sync, {
+    source: String(options.source || 'auto_sync'),
+    fromHeight: coverage.fromHeight,
+    toHeight: releaseToHeight,
+    tipHash: coverage.tipHash,
+    eventCount: Number(imported.imported || coverage.eventCount || 0),
+    warningCount: Number(imported.warnings || 0),
+    importedAt: now,
+  });
+  recordPersistedP2PSyncRound({
+    bootstrapHeight,
+    committedHeight: releaseToHeight,
+    perHeight: {
+      [String(releaseToHeight)]: {
+        hash: localTipHash,
+        persistedAt: now,
+        rowsFound: Number(imported.imported || coverage.eventCount || 0),
+        txCount: Number(coverage.txCount || 0),
+      },
+    },
+  });
+  setRuntimeSyncProgress({
+    bootstrapHeight,
+    fixedSyncLastHeight: Number(state.sync.fixedSyncLastHeight || 0),
+    localHeight: Number(state.sync.localHeight || 0),
+    networkHeight: Math.max(Number(state.sync.targetHeight || 0), Number(releaseToHeight || 0)),
+    bootstrapIndex: meta,
+  });
+  applyDerivedSyncOnline(state.sync);
+  appendMarketDebug('bootstrap_index_auto_applied', {
+    previousLocalHeight: localBusinessHeight,
+    releaseToHeight,
+    releaseFromHeight: coverage.fromHeight,
+    imported: Number(imported.imported || 0),
+    warnings: Number(imported.warnings || 0),
+    nextBlockSyncStart: releaseToHeight + 1,
+    source: String(options.source || 'auto_sync'),
+  });
+  return {
+    applied: true,
+    previousLocalHeight: localBusinessHeight,
+    releaseToHeight,
+    nextBlockSyncStart: releaseToHeight + 1,
+    imported,
+    meta,
+  };
+}
+
+async function importBootstrapIndexRelease(options = {}) {
+  const startedAt = Date.now();
+  const input = resolveBootstrapIndexInput(options);
+  const payload = readBootstrapJsonFile(input.indexPath);
+  const entries = Array.isArray(payload.entries) ? payload.entries : [];
+  if (!entries.length) throw new Error('Bootstrap index has no entries');
+  const dryRun = options.dryRun === true;
+  const rows = [];
+  const failures = [];
+  const warnings = [];
+  const eventTypes = {};
+  for (const entry of entries) {
+    const verified = verifyBootstrapIndexEntry(entry);
+    if (!verified.ok) {
+      failures.push({
+        txid: String(entry.txid || ''),
+        eventType: String(entry.eventType || ''),
+        height: Number(entry.height || 0),
+        errors: verified.errors,
+      });
+      if (failures.length >= 25) break;
+      continue;
+    }
+    if (Array.isArray(verified.warnings) && verified.warnings.length > 0) {
+      warnings.push({
+        txid: verified.txid,
+        eventType: verified.eventType,
+        warnings: verified.warnings,
+      });
+    }
+    const row = bootstrapEntryToAnchorRow(entry, verified);
+    rows.push(row);
+    eventTypes[row.eventType] = (eventTypes[row.eventType] || 0) + 1;
+    if (!dryRun && typeof wallet.upsertTxContext === 'function') {
+      wallet.upsertTxContext(verified.rawtx, {
+        source: 'bootstrap_index_release',
+        kind: verified.eventType,
+        confirmed: true,
+        proofType: String(entry.proofType || 'merkle-path-tsc'),
+        proofSource: String(entry.proofSource || 'bootstrap_index_release'),
+        proofHex: String(entry.proofHex || ''),
+        proofEncoding: String(entry.proofEncoding || 'bump'),
+        proofVerified: true,
+        proofVerifiedAt: String(entry.proofVerifiedAt || new Date().toISOString()),
+        proofBlockHeight: verified.height,
+        proofBlockHash: verified.blockHash,
+        proofMerkleRoot: String(entry.proofMerkleRoot || verified.proofRoot || ''),
+      });
+    }
+  }
+  if (failures.length > 0) {
+    const err = new Error(`Bootstrap index verification failed: ${failures[0].errors.join(',')}`);
+    err.failures = failures;
+    throw err;
+  }
+
+  const normalizedRows = normalizeAnchorRowsForSqlite(rows);
+  if (!dryRun) {
+    await marketDb.upsertAnchorEvents(normalizedRows);
+    await applyCatalogAnchorRowsIncremental(rows, buildRuntimeAuthReq());
+    const req = buildRuntimeAuthReq();
+    const state = buildProjectionStateFromSqlite(req);
+    const orders = rebuildOrdersFromAnchors(state, req, { includePending: false });
+    await marketDb.applyOrderProjectionBatch({ orders, resetAll: true });
+    await bridgeChatFactsToDomain(state, req, { reason: 'bootstrap_index_release_import' });
+    scheduleChatAnchorBridge('bootstrap_index_release_import', 25);
+    rebuildPublicStateCacheLocally('bootstrap_index_release_import', null, { domains: ['catalog', 'order', 'chat', 'drive'] });
+    scheduleMappedFrontendBroadcast('bootstrap.index.imported', 'bootstrap_index_release_imported', 50, true, 'bootstrap_index_release', {
+      eventCount: rows.length,
+      eventTypes,
+    });
+  }
+  const result = {
+    ok: true,
+    dryRun,
+    manifestPath: input.manifestPath,
+    indexPath: input.indexPath,
+    entries: entries.length,
+    imported: rows.length,
+    normalized: normalizedRows.length,
+    warnings: warnings.length,
+    warningSamples: warnings.slice(0, 10),
+    eventTypes,
+    elapsedMs: Date.now() - startedAt,
+  };
+  appendMarketDebug('bootstrap_index_release_import_done', result);
+  return result;
+}
+
 function getChatRelevantAnchorRows(state, options = {}) {
   const sqliteRows = loadAnchorEventsFromSqlite(options.sqlite || {});
   const legacyGlobalRows = fs.existsSync(GLOBAL_ANCHOR_CACHE_FILE)
@@ -5200,6 +5703,7 @@ function defaultState() {
       emptyBackfillTried: false,
       chainSources: [],
       sourceStats: {},
+      bootstrapIndex: null,
       p2pHeaderCursorHeight: seededCache[String(BOOTSTRAP_PREV_HEIGHT)] ? BOOTSTRAP_PREV_HEIGHT : -1,
       p2pHeaderCursorHash: seededCache[String(BOOTSTRAP_PREV_HEIGHT)] || '',
       p2pTipHeight: 0,
@@ -5387,6 +5891,9 @@ function buildSyncStateDbPayload(syncLike = {}) {
   const p2pHeaderCursorHeightRaw = Number(syncLike?.p2pHeaderCursorHeight);
   const p2pHeaderCursorHeight = Number.isFinite(p2pHeaderCursorHeightRaw) ? p2pHeaderCursorHeightRaw : -1;
   const p2pHeightHashCache = stripTrustedBhsHeightsFromCache(syncLike?.p2pHeightHashCache);
+  const sourceStats = syncLike?.sourceStats && typeof syncLike.sourceStats === 'object' ? { ...syncLike.sourceStats } : {};
+  const bootstrapIndexMeta = getSyncBootstrapIndexMeta(syncLike);
+  if (bootstrapIndexMeta) sourceStats.bootstrapIndex = bootstrapIndexMeta;
   return {
     scope: 'main',
     bootstrapHeight,
@@ -5409,7 +5916,7 @@ function buildSyncStateDbPayload(syncLike = {}) {
     lastP2PGoodNodes: Math.max(0, Number(syncLike?.lastP2PGoodNodes || 0)),
     emptyBackfillTried: syncLike?.emptyBackfillTried === true,
     chainSources: Array.isArray(syncLike?.chainSources) ? syncLike.chainSources : [],
-    sourceStats: syncLike?.sourceStats && typeof syncLike.sourceStats === 'object' ? syncLike.sourceStats : {},
+    sourceStats,
     p2pHeightHashCache,
     p2pGapHeights: Array.isArray(syncLike?.p2pGapHeights) ? syncLike.p2pGapHeights : [],
     p2pNodeStats: syncLike?.p2pNodeStats && typeof syncLike.p2pNodeStats === 'object'
@@ -5453,6 +5960,7 @@ function applySqliteSyncStateRow(targetSync = {}, row = null) {
   targetSync.emptyBackfillTried = Number(row.empty_backfill_tried || 0) === 1;
   targetSync.chainSources = Array.isArray(chainSources) ? chainSources : [];
   targetSync.sourceStats = sourceStats && typeof sourceStats === 'object' ? sourceStats : {};
+  targetSync.bootstrapIndex = getSyncBootstrapIndexMeta(targetSync);
   targetSync.p2pHeightHashCache = p2pHeightHashCache && typeof p2pHeightHashCache === 'object' ? p2pHeightHashCache : {};
   targetSync.p2pGapHeights = Array.isArray(p2pGapHeights) ? p2pGapHeights : [];
   targetSync.p2pNodeStats = p2pNodeStats && typeof p2pNodeStats === 'object' ? p2pNodeStats : {};
@@ -8760,6 +9268,7 @@ function loadLegacyStateSnapshot() {
   if (!Number.isFinite(Number(merged.sync.fixedSyncLastHeight))) merged.sync.fixedSyncLastHeight = null;
   if (!Array.isArray(merged.sync.chainSources)) merged.sync.chainSources = [];
   if (!merged.sync.sourceStats || typeof merged.sync.sourceStats !== 'object') merged.sync.sourceStats = {};
+  merged.sync.bootstrapIndex = getSyncBootstrapIndexMeta(merged.sync);
   if (!Number.isFinite(Number(merged.sync.p2pHeaderCursorHeight))) merged.sync.p2pHeaderCursorHeight = -1;
   if (typeof merged.sync.p2pHeaderCursorHash !== 'string') merged.sync.p2pHeaderCursorHash = '';
   if (!Number.isFinite(Number(merged.sync.p2pTipHeight))) merged.sync.p2pTipHeight = 0;
@@ -11220,11 +11729,13 @@ function normalizeSyncForDisplay(trustedLike = {}) {
   const localHeight = Number(trusted.localHeight || 0);
   const highestBlock = Math.max(0, Number(trusted.highestBlock || 0));
   const lag = highestBlock > 0 ? Math.max(0, highestBlock - localHeight) : 0;
+  const bootstrapIndex = getSyncBootstrapIndexMeta(trusted);
   return {
     ...trusted,
     localHeight,
     highestBlock,
     lag,
+    bootstrapIndex,
   };
 }
 
@@ -12638,10 +13149,51 @@ async function broadcastAndTrackOrderRawtx(req, state, {
       rootOnlyBroadcast: rootOnlyBroadcast === true,
       error: String(err?.message || err || 'broadcast failed'),
     });
-    if (failedTxid && !err.txid) err.txid = failedTxid;
-    if (!err.rawtx) err.rawtx = safeRawtx;
-    if (!err.failureStage) err.failureStage = 'broadcast_failed';
-    throw err;
+    const publicVisible = failedTxid && typeof wallet.isTxVisibleOnPublicIndex === 'function'
+      ? await wallet.isTxVisibleOnPublicIndex(failedTxid, { allowDisabled: true }).catch((visibilityErr) => {
+        appendMarketDebug('order_rawtx_broadcast_failure_visibility_probe_failed', {
+          source: String(source || ''),
+          reservationId: String(reservationId || ''),
+          reservationType: String(reservationType || ''),
+          note: String(note || ''),
+          txid: failedTxid,
+          error: String(visibilityErr?.message || visibilityErr || 'visibility probe failed'),
+        });
+        return false;
+      })
+      : false;
+    if (!publicVisible) {
+      if (failedTxid && !err.txid) err.txid = failedTxid;
+      if (!err.rawtx) err.rawtx = safeRawtx;
+      if (!err.failureStage) err.failureStage = 'broadcast_failed';
+      throw err;
+    }
+    broadcast = {
+      txid: failedTxid,
+      provider: 'spv-p2p+public-index',
+      node: 'public-index',
+      nodes: [],
+      successCount: 0,
+      attemptedCount: 0,
+      observed: true,
+      observedRelevant: true,
+      observedConfirmed: false,
+      observedNode: 'public-index',
+      mempoolProofHitCount: 1,
+      mempoolProofNodes: ['public-index'],
+      broadcastAcceptedByMempool: true,
+      recoveredAfterBroadcastError: true,
+      originalError: String(err?.message || err || 'broadcast failed'),
+    };
+    appendMarketDebug('order_rawtx_broadcast_recovered_by_visibility', {
+      source: String(source || ''),
+      reservationId: String(reservationId || ''),
+      reservationType: String(reservationType || ''),
+      note: String(note || ''),
+      txid: failedTxid,
+      rawtxBytes: Math.floor(safeRawtx.length / 2),
+      originalError: String(err?.message || err || 'broadcast failed'),
+    });
   }
   const txid = String(broadcast?.txid || '').trim().toLowerCase();
   const mempoolProofHitCount = Math.max(0, Number(broadcast?.mempoolProofHitCount || 0));
@@ -18489,12 +19041,33 @@ async function mergeAnchorsFromChain(req, state, options = {}) {
   const skipHeaderSyncReason = String(options?.skipHeaderSyncReason || '').trim();
   const skipForwardProbe = options?.skipForwardProbe === true;
   const skipForwardProbeReason = String(options?.skipForwardProbeReason || '').trim();
+  let bootstrapIndexResult = null;
+  if (includeFixedHeight) {
+    try {
+      bootstrapIndexResult = await maybeApplyBootstrapIndexForBusinessSync(state, {
+        source: 'merge_anchors_from_chain',
+      });
+    } catch (error) {
+      bootstrapIndexResult = {
+        applied: false,
+        reason: 'import_failed',
+        error: String(error?.message || error || 'bootstrap index auto import failed'),
+      };
+      appendMarketDebug('bootstrap_index_auto_apply_failed', {
+        syncEpoch,
+        message: bootstrapIndexResult.error,
+      });
+    }
+  }
+  const effectiveTrustedSyncSnapshot = bootstrapIndexResult?.applied === true
+    ? getTrustedSyncSnapshot(state.sync)
+    : options?.trustedSyncSnapshot;
   let fixedSyncResult = null;
   if (includeFixedHeight) {
     if (P2P_SYNC_ONLY) {
       const runtimePolicy = getLagDrivenSyncPolicy(state);
-      const trustedSync = options?.trustedSyncSnapshot && typeof options.trustedSyncSnapshot === 'object'
-        ? getTrustedSyncSnapshot(options.trustedSyncSnapshot)
+      const trustedSync = effectiveTrustedSyncSnapshot && typeof effectiveTrustedSyncSnapshot === 'object'
+        ? getTrustedSyncSnapshot(effectiveTrustedSyncSnapshot)
         : getTrustedSyncSnapshot(getStateWithRuntimeSync(state)?.sync || {});
       const bhsTipSnapshot = getBhsTipSnapshot();
       const bhsTipHeight = Math.max(0, Number(bhsTipSnapshot?.tipHeight || 0));
@@ -18722,10 +19295,12 @@ async function mergeAnchorsFromChain(req, state, options = {}) {
     addedFromChain,
     refreshedConfirmed,
     repairedConfirmedWalletTxs,
+    bootstrapIndex: bootstrapIndexResult,
     stateAnchors: getPendingAnchorOverlay(state).length,
   });
   return {
     cancelled: fixedSyncResult?.cancelled === true,
+    bootstrapIndex: bootstrapIndexResult,
   };
 }
 
@@ -22052,6 +22627,8 @@ app.get('/api/sync/status', async (req, res) => {
     ? { ...status.sync }
     : null;
   if (syncStatus) {
+    const localBootstrapMeta = getSyncBootstrapIndexMeta(buildProjectionBackedState(req)?.sync || {});
+    if (localBootstrapMeta) syncStatus.bootstrapIndex = localBootstrapMeta;
     syncStatus.highestBlock = getDisplayedHighestBlock(syncStatus, syncStatus.bhs);
     syncStatus.lag = Math.max(0, Number(syncStatus.highestBlock || 0) - Number(syncStatus.localHeight || 0));
     delete syncStatus.networkHeight;
@@ -22704,11 +23281,31 @@ app.post('/api/wallet/sync', walletAuthRequired, async (req, res) => {
         message: String(orderReplayError?.message || orderReplayError || 'order tx context replay failed'),
       });
     }
+    let bootstrapIndex = null;
+    const shouldApplyBootstrapIndex = shouldForceBootstrap
+      || shouldClearLocalFirst
+      || String(process.env.BSV_MARKET_BOOTSTRAP_INDEX_AUTO || '0') === '1';
+    if (shouldApplyBootstrapIndex && bootstrapIndexReleaseAvailable()) {
+      try {
+        bootstrapIndex = await importBootstrapIndexRelease({ source: 'wallet_sync_api' });
+      } catch (bootstrapErr) {
+        bootstrapIndex = {
+          ok: false,
+          error: String(bootstrapErr?.message || bootstrapErr || 'bootstrap index import failed'),
+        };
+        appendMarketDebug('wallet_sync_bootstrap_index_failed', {
+          forceBootstrap: shouldForceBootstrap,
+          clearLocalFirst: shouldClearLocalFirst,
+          message: bootstrapIndex.error,
+        });
+      }
+    }
     return res.json({
       success: true,
       rescanned: shouldRescan,
       forceBootstrap: shouldForceBootstrap,
       clearLocalFirst: shouldClearLocalFirst,
+      bootstrapIndex,
       ...data,
     });
   } catch (err) {
@@ -22720,6 +23317,23 @@ app.post('/api/wallet/sync', walletAuthRequired, async (req, res) => {
       message: String(err?.message || 'Sync failed'),
     });
     return fail(res, err.message || 'Sync failed');
+  }
+});
+
+app.post('/api/bootstrap-index/import', walletAuthRequired, async (req, res) => {
+  try {
+    const result = await importBootstrapIndexRelease({
+      manifestPath: req.body?.manifestPath || req.body?.manifest,
+      indexPath: req.body?.indexPath || req.body?.index,
+      dryRun: req.body?.dryRun === true,
+    });
+    return res.json({ success: true, ...result });
+  } catch (err) {
+    appendMarketDebug('bootstrap_index_release_import_failed', {
+      message: String(err?.message || err || 'bootstrap index import failed'),
+      failures: Array.isArray(err?.failures) ? err.failures.slice(0, 5) : [],
+    });
+    return fail(res, err?.message || 'Bootstrap index import failed');
   }
 });
 
@@ -25571,6 +26185,8 @@ module.exports = {
   isSystemDefinedOpReturn,
   mergeRowsIntoStateAnchors,
   mergeIntoGlobalAnchorCache,
+  importBootstrapIndexRelease,
+  maybeApplyBootstrapIndexForBusinessSync,
   rebuildDataFromLocalAnchors,
   extractAnchorRowsFromP2PBlock,
   extractAnchorRowsFromStreamedPeer,

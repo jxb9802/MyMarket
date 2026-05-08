@@ -1301,13 +1301,13 @@ function isDeletedCatalogRow(row) {
 function isOwnedCategory(c) {
   const currentMerchantId = String(state.currentMerchantId || "").trim();
   const categoryMerchantId = String(c?.merchantId || "").trim();
-  return Boolean(currentMerchantId && categoryMerchantId && sameMerchantId(categoryMerchantId, currentMerchantId));
+  return Boolean(c?.ownedByCurrentWallet === true || (currentMerchantId && categoryMerchantId && sameMerchantId(categoryMerchantId, currentMerchantId)));
 }
 
 function isOwnedProduct(p) {
   const currentMerchantId = String(state.currentMerchantId || "").trim();
   const productMerchantId = String(p?.merchantId || "").trim();
-  return Boolean(currentMerchantId && productMerchantId && sameMerchantId(productMerchantId, currentMerchantId));
+  return Boolean(p?.ownedByCurrentWallet === true || (currentMerchantId && productMerchantId && sameMerchantId(productMerchantId, currentMerchantId)));
 }
 
 function toast(msg) {
@@ -1746,6 +1746,10 @@ function baseResyncSteps(progress = {}) {
 function progressMetaFromSnapshot(syncLike = {}, bootstrapOverride = null) {
   const bootstrapHeight = Math.max(0, Number(bootstrapOverride ?? syncLike.bootstrapHeight ?? state.sync.bootstrapHeight ?? 0));
   const localHeight = Math.max(0, Number(syncLike.localHeight ?? state.sync.localHeight ?? 0));
+  const bootstrapIndex = syncLike.bootstrapIndex && typeof syncLike.bootstrapIndex === "object"
+    ? syncLike.bootstrapIndex
+    : (syncLike.sourceStats && typeof syncLike.sourceStats === "object" ? syncLike.sourceStats.bootstrapIndex : null);
+  const recoveredHeight = Math.max(0, Number(bootstrapIndex?.recoveredHeight || bootstrapIndex?.toHeight || 0));
   const highestBlock = Math.max(
     0,
     Number(syncLike.highestBlock ?? syncLike.networkHeight ?? syncLike?.bhs?.tipHeight ?? state.sync.highestBlock ?? state.sync.networkHeight ?? state.sync?.bhs?.tipHeight ?? 0),
@@ -1760,6 +1764,8 @@ function progressMetaFromSnapshot(syncLike = {}, bootstrapOverride = null) {
     percent,
     localHeight,
     highestBlock,
+    bootstrapHeight,
+    recoveredHeight,
     lag: Math.max(0, highestBlock - localHeight),
   };
 }
@@ -2119,6 +2125,7 @@ function buildResyncFlowState(syncStatus = null) {
     || independentPhase === "round_committing"
     || independentPhase === "running";
   const progressMeta = progressMetaFromSnapshot(sync, bootstrapBase);
+  const recoveredHeight = Math.max(0, Number(progressMeta.recoveredHeight || 0));
   const peakPercent = Math.max(
     0,
     Number(flow.peakPercent || 0),
@@ -2212,6 +2219,9 @@ function buildResyncFlowState(syncStatus = null) {
   if (isSyncJob && (inWarmupStage || hasLiveSyncActivity || syncEntered)) {
     steps[5].status = "active";
     steps[5].tone = "active";
+    const restoredText = recoveredHeight > 0
+      ? trf("resync_fast_restored_inline", { height: recoveredHeight }, `Fast restored to ${recoveredHeight}. `)
+      : "";
     steps[5].detail = trf(
       "resync_sync_running_detail",
       {
@@ -2220,8 +2230,9 @@ function buildResyncFlowState(syncStatus = null) {
         highestBlock,
         lag,
         stage: activeStage || independentPhase || "running",
+        restored: restoredText,
       },
-      `${Math.max(1, nodeReadyCount || 1)} nodes syncing. Local ${committedLocalHeight} / highest ${highestBlock} / lag ${lag} / stage ${activeStage || independentPhase || "running"}`,
+      `${restoredText}${Math.max(1, nodeReadyCount || 1)} nodes syncing. Local ${committedLocalHeight} / highest ${highestBlock} / lag ${lag} / stage ${activeStage || independentPhase || "running"}`,
     );
   } else if (isSyncJob && (inPrepareStage || inNodeProbeStage)) {
     steps[5].status = "active";
@@ -2241,6 +2252,7 @@ function buildResyncFlowState(syncStatus = null) {
     highestBlock,
     lag,
     percent: peakPercent,
+    recoveredHeight,
     elapsedText,
     currentLabel: readyToClose ? tr("resync_started_label", "Sync started") : (currentStep?.label || tr("resync_progress_title", "Processing in background")),
     summary: readyToClose
@@ -2262,9 +2274,12 @@ function renderResyncProgressUi(flowState = null) {
   if (els.resyncProgressSummary) els.resyncProgressSummary.textContent = view.summary;
   if (els.resyncProgressBar) els.resyncProgressBar.style.width = `${Math.max(0, Math.min(100, Number(view.percent || 0)))}%`;
   if (els.resyncProgressText) {
-    els.resyncProgressText.textContent = view.finished
+    const restoredPrefix = Number(view.recoveredHeight || 0) > 0
+      ? trf("resync_fast_restored_prefix", { height: Number(view.recoveredHeight || 0) }, `Restored to ${Number(view.recoveredHeight || 0)} · `)
+      : "";
+    els.resyncProgressText.textContent = restoredPrefix + (view.finished
       ? trf("resync_started_percent", { percent: Number(view.percent || 0).toFixed(2) }, `Started ${Number(view.percent || 0).toFixed(2)}%`)
-      : trf("resync_sync_percent", { percent: Number(view.percent || 0).toFixed(2) }, `Sync ${Number(view.percent || 0).toFixed(2)}%`);
+      : trf("resync_sync_percent", { percent: Number(view.percent || 0).toFixed(2) }, `Sync ${Number(view.percent || 0).toFixed(2)}%`));
   }
   if (els.resyncElapsed) els.resyncElapsed.textContent = trf("resync_elapsed", { elapsed: String(view.elapsedText || "0s") }, `Elapsed ${String(view.elapsedText || "0s")}`);
   if (els.resyncStepList) {
@@ -6359,6 +6374,10 @@ function syncProgressMeta() {
   const bootstrapHeight = Math.max(0, Number(state.sync.bootstrapHeight || 0));
   const rawLocalHeight = Math.max(0, Number(state.sync.localHeight || 0));
   const rawHighestBlock = Math.max(0, Number(state.sync.highestBlock || state.sync.networkHeight || state.sync?.bhs?.tipHeight || 0));
+  const bootstrapIndex = state.sync.bootstrapIndex && typeof state.sync.bootstrapIndex === "object"
+    ? state.sync.bootstrapIndex
+    : (state.sync.sourceStats && typeof state.sync.sourceStats === "object" ? state.sync.sourceStats.bootstrapIndex : null);
+  const recoveredHeight = Math.max(0, Number(bootstrapIndex?.recoveredHeight || bootstrapIndex?.toHeight || 0));
   const forceResetDisplay = shouldForceSyncResetDisplay(state.sync);
   const forcedBootstrapHeight = Math.max(
     0,
@@ -6378,6 +6397,8 @@ function syncProgressMeta() {
     percent,
     localHeight,
     highestBlock,
+    bootstrapHeight: progressBootstrapHeight,
+    recoveredHeight,
     lag: Math.max(0, highestBlock - localHeight),
   };
 }
@@ -6968,7 +6989,10 @@ function renderHeader() {
         : "linear-gradient(90deg, #f0a128, #ffd36a)");
   }
   if (els.syncProgressText) {
-    els.syncProgressText.textContent = trf("sync_progress_percent", { percent: progress.percent.toFixed(2) }, `Progress ${progress.percent.toFixed(2)}%`);
+    const restoredPrefix = Number(progress.recoveredHeight || 0) > 0
+      ? trf("sync_fast_restored_prefix", { height: Number(progress.recoveredHeight || 0) }, `Restored to ${Number(progress.recoveredHeight || 0)} · `)
+      : "";
+    els.syncProgressText.textContent = restoredPrefix + trf("sync_progress_percent", { percent: progress.percent.toFixed(2) }, `Progress ${progress.percent.toFixed(2)}%`);
   }
   if (els.btnShowConnectedNodes) els.btnShowConnectedNodes.textContent = trf("sync_connected_nodes", { count: connectedNodeCount }, `Connected ${connectedNodeCount}`);
   if (els.btnShowCandidateNodes) els.btnShowCandidateNodes.textContent = trf("sync_candidate_nodes", { count: candidate }, `Candidates ${candidate}`);
@@ -12341,7 +12365,7 @@ function bindEvents() {
   els.categoryList.addEventListener("click", async (e) => {
     const btn = e.target.closest("button[data-category-action]");
     if (btn) {
-      if (!editingAllowed()) return;
+      if (!requireEditingAllowed(tr("category_edit_action", "Edit category"))) return;
       const categoryId = String(btn.dataset.categoryId || "");
       const action = String(btn.dataset.categoryAction || "");
       const item = sellerCategories().find((c) => c.id === categoryId);
@@ -12375,7 +12399,7 @@ function bindEvents() {
   els.sellerProductList.addEventListener("click", async (e) => {
     const btn = e.target.closest("button[data-product-action]");
     if (btn) {
-      if (!editingAllowed()) return;
+      if (!requireEditingAllowed(tr("product_edit_action", "Edit product"))) return;
       const productId = String(btn.dataset.productId || "");
       const action = String(btn.dataset.productAction || "");
       const p = state.products.find((x) => x.id === productId && isOwnedProduct(x));
