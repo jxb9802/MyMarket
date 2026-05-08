@@ -21,7 +21,9 @@ A decentralized P2P marketplace with on-chain escrow and built-in decentralized 
 **Method 2: Install via npm**
 
 npm install @jxb9802/bsv-market
+
 cd node_modules/@jxb9802/bsv-market
+
 npm start
   
 ---
