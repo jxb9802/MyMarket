@@ -7,6 +7,7 @@ A decentralized P2P marketplace with on-chain escrow and built-in decentralized 
 ## 🚀 How to Use
 
 ### 1. Installation
+Method 1: Run directly after downloading
 
 1. Download the entire project to your local machine.
 2. Extract the files to a disk with **plenty of free space**.  
@@ -18,6 +19,11 @@ A decentralized P2P marketplace with on-chain escrow and built-in decentralized 
    **http://127.0.0.1:8091**
 
 ---
+Method 2: Auto-download and run packages via npm
+1.Download automatically via npm:
+  -**npm install @jxb9802/bsv-market**
+2.Running Package
+  -**cd node_modules\@jxb9802\bsv-market && npm start**
 
 ### 2. Main Features
 
