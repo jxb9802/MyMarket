@@ -114,6 +114,9 @@ async function performCatalogResyncReset(options = {}) {
     await resetProfileSnapshot('self');
     await resetLocalState('main');
     await resetOrdersProjection();
+    const walletKey = typeof getWalletKey === 'function' ? String(getWalletKey() || '').trim() : '';
+    if (walletKey && typeof resetWalletState === 'function') await resetWalletState(walletKey);
+    if (typeof resetWalletTxProjection === 'function') await resetWalletTxProjection();
   }, {
     attempts: 3,
     baseDelayMs: 150,
@@ -338,6 +341,9 @@ async function performLocalSyncStateReset(options = {}) {
     await resetProfileSnapshot('self');
     await resetLocalState('main');
     await resetOrdersProjection();
+    const walletKey = typeof getWalletKey === 'function' ? String(getWalletKey() || '').trim() : '';
+    if (walletKey && typeof resetWalletState === 'function') await resetWalletState(walletKey);
+    if (typeof resetWalletTxProjection === 'function') await resetWalletTxProjection();
   }, {
     attempts: 3,
     baseDelayMs: 150,

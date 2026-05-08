@@ -1747,6 +1747,14 @@ function buildRuntimeStateFromProjection(options = {}) {
   const activeSyncNodeList = Array.from(new Set(
     Array.isArray(connectedNodes.activeSyncNodeList) ? connectedNodes.activeSyncNodeList : [],
   ));
+  const independentPhaseRaw = String(independentSync.phase || '');
+  const displayIndependentPhase = (
+    hasManagedSyncActivity
+    && lag > 0
+    && (!independentPhaseRaw || independentPhaseRaw === 'idle' || independentPhaseRaw === 'done')
+  )
+    ? 'running'
+    : independentPhaseRaw;
   const syncStartHeight = bootstrapHeight;
   const syncedBlocks = Math.max(0, localHeight - syncStartLocalFloor);
   const runtimeState = ensureRuntimeState();
@@ -1805,7 +1813,7 @@ function buildRuntimeStateFromProjection(options = {}) {
     receiptCommittedHeight,
     syncStartHeight,
     syncedBlocks,
-    independentPhase: String(independentSync.phase || ''),
+    independentPhase: displayIndependentPhase,
     independentUpdatedAt: String(independentSync.updatedAt || ''),
     independentLocalHeight: Math.max(0, Number(independentSync.localHeight || 0)),
     independentTargetHeight: Math.max(0, Number(independentSync.targetHeight || 0)),

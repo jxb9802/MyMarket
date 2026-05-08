@@ -1823,6 +1823,11 @@ function resetTxContextStore() {
 }
 
 function clearWalletLocalIndex(reason = 'manual_sync_reset') {
+  try {
+    ensureWalletSyncHintsBackfilled({
+      source: `${String(reason || 'manual_sync_reset')}_pre_clear`,
+    });
+  } catch (_) {}
   resetSpvIndex();
   resetWalletCache();
   resetTxContextStore();
@@ -4785,6 +4790,7 @@ function buildConfirmedBlockTxSummary(txLike, options = {}) {
   return {
     txid,
     txIndex: Math.max(0, Number(options.txIndex || 0)),
+    firstSeenHeight: normalizeWalletSyncHeight(options.firstSeenHeight || options.localHeight || options.blockHeight),
     inputs,
     walletOutputs,
     // Keep rawtx only when the transaction creates wallet outputs. This keeps
@@ -4859,7 +4865,12 @@ function applyConfirmedTxSummaryToSpvIndex(summary = {}, options = {}) {
   }
 
   const now = new Date().toISOString();
-  const firstSeenHeight = Math.max(0, Number(options?.firstSeenHeight || options?.localHeight || 0));
+  const firstSeenHeight = normalizeWalletSyncHeight(
+    options?.firstSeenHeight
+    || options?.localHeight
+    || summary?.firstSeenHeight
+    || summary?.blockHeight
+  );
   const pendingOwnedInputs = [];
   for (const input of normalizedInputs) {
     const outpoint = `${input.txId}:${input.vout}`;
@@ -4915,6 +4926,10 @@ function applyConfirmedTxSummaryToSpvIndex(summary = {}, options = {}) {
       }
     }
     saveSpvIndex(index);
+    if (firstSeenHeight > 0) updateWalletSyncHints({
+      earliestTxHeight: firstSeenHeight,
+      source: String(options?.source || 'spv-index-summary'),
+    });
     if (confirmed && rawtxHex) markTxContextConfirmed(txid);
     return true;
   }
@@ -4981,6 +4996,10 @@ function applyConfirmedTxSummaryToSpvIndex(summary = {}, options = {}) {
       netSat: Number(index.txs[txid]?.netSat || 0),
     });
     saveSpvIndex(index);
+    if (firstSeenHeight > 0) updateWalletSyncHints({
+      earliestTxHeight: firstSeenHeight,
+      source: String(options?.source || 'spv-index-summary'),
+    });
     if (confirmed && rawtxHex) markTxContextConfirmed(txid);
     return true;
   }
@@ -5041,6 +5060,10 @@ function applyConfirmedTxSummaryToSpvIndex(summary = {}, options = {}) {
   if (!receivedSat && !spentSat) {
     if (knownSpentOutputCount > 0) {
       saveSpvIndex(index);
+      if (firstSeenHeight > 0) updateWalletSyncHints({
+        earliestTxHeight: firstSeenHeight,
+        source: String(options?.source || 'spv-index-summary'),
+      });
       if (confirmed && rawtxHex) markTxContextConfirmed(txid);
       return true;
     }
@@ -5066,6 +5089,10 @@ function applyConfirmedTxSummaryToSpvIndex(summary = {}, options = {}) {
   };
 
   saveSpvIndex(index);
+  if (firstSeenHeight > 0) updateWalletSyncHints({
+    earliestTxHeight: firstSeenHeight,
+    source: String(options?.source || 'spv-index-summary'),
+  });
   if (confirmed && rawtxHex) markTxContextConfirmed(txid);
   return true;
 }

@@ -71,19 +71,22 @@ function createFrontendEventGateway(options = {}) {
       return null;
     }
     const domains = snapshot?.domains && typeof snapshot.domains === 'object' ? snapshot.domains : {};
-    const envelopes = [
-      makeEnvelope('sync.snapshot.updated', 'sync', domains.sync || {}, { ts: snapshot?.serverTs }),
-      makeEnvelope('wallet.snapshot.updated', 'wallet', domains.wallet || {}, { ts: snapshot?.serverTs }),
-      makeEnvelope('wallet.ledger.updated', 'wallet', domains.walletLedger || {}, { ts: snapshot?.serverTs }),
-      makeEnvelope('chat.snapshot.updated', 'chat', domains.chat || {}, { ts: snapshot?.serverTs }),
-      makeEnvelope('order.snapshot.updated', 'order', domains.order || {}, { ts: snapshot?.serverTs }),
-      makeEnvelope('catalog.snapshot.updated', 'catalog', domains.catalog || {}, { ts: snapshot?.serverTs }),
-      makeEnvelope('profile.snapshot.updated', 'profile', domains.profile || {}, { ts: snapshot?.serverTs }),
-      makeEnvelope('system.bootstrap', 'system', {
+    const domainSpecs = [
+      ['sync', 'sync.snapshot.updated', 'sync'],
+      ['wallet', 'wallet.snapshot.updated', 'wallet'],
+      ['walletLedger', 'wallet.ledger.updated', 'wallet'],
+      ['chat', 'chat.snapshot.updated', 'chat'],
+      ['order', 'order.snapshot.updated', 'order'],
+      ['catalog', 'catalog.snapshot.updated', 'catalog'],
+      ['profile', 'profile.snapshot.updated', 'profile'],
+    ];
+    const envelopes = domainSpecs
+      .filter(([key]) => Object.prototype.hasOwnProperty.call(domains, key))
+      .map(([key, type, domain]) => makeEnvelope(type, domain, domains[key] || {}, { ts: snapshot?.serverTs }));
+    envelopes.push(makeEnvelope('system.bootstrap', 'system', {
         reason: String(reason || 'runtime'),
         bootstrapVersion: Number(snapshot?.bootstrapVersion || 1),
-      }, { ts: snapshot?.serverTs }),
-    ];
+      }, { ts: snapshot?.serverTs }));
     envelopes.forEach((envelope) => send(client, remember(envelope)));
     return snapshot;
   }

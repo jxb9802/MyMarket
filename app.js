@@ -1140,15 +1140,11 @@ function openProductDetailModal(productId = "") {
     if (stock > 0) els.productDetailQuantity.max = String(stock);
     else els.productDetailQuantity.removeAttribute("max");
     els.productDetailQuantity.value = "1";
-    els.productDetailQuantity.disabled = product.deleted === true;
+    els.productDetailQuantity.disabled = product.deleted === true || businessSyncGateStatus().blocked;
   }
   if (els.productDetailDescription) els.productDetailDescription.textContent = String(product.description || "").trim() || tr("product_detail_no_description", "No description");
   if (els.btnProductDetailBuy) {
-    const stock = Math.max(0, Math.floor(Number(product.stock || 0)));
-    const ownProduct = isOwnedProduct(product) || String(product?.merchantId || "") === String(state.currentMerchantId || "");
-    let disabledReason = "";
-    if (product.deleted === true) disabledReason = tr("product_deleted_order_disabled", "商品已删除，不能下单。");
-    else if (ownProduct) disabledReason = tr("own_product_order_disabled", "不能购买自己发布的商品。");
+    const disabledReason = productDetailBuyDisabledReason(product);
     els.btnProductDetailBuy.dataset.productId = String(product.id || "");
     els.btnProductDetailBuy.disabled = Boolean(disabledReason);
     els.btnProductDetailBuy.title = disabledReason;
@@ -1804,7 +1800,16 @@ function mergeLiveSyncSnapshot(targetSync, liveSync) {
     && nextBootstrapHeight > 0
     && liveBootstrapHeight !== nextBootstrapHeight
     && pickNumber(live.localHeight, 0) <= Math.max(0, liveBootstrapHeight - 1);
-  const allowResetReplace = resetEpochAdvance || resetBootstrapRollback;
+  const resetLocalRollback = liveBootstrapHeight > 0
+    && pickNumber(live.localHeight, 0) <= Math.max(0, liveBootstrapHeight - 1)
+    && pickNumber(next.localHeight, 0) > pickNumber(live.localHeight, 0)
+    && Math.max(
+      pickNumber(live.highestBlock, 0),
+      pickNumber(live.networkHeight, 0),
+      pickNumber(live.p2pTipHeight, 0),
+      pickNumber(live?.bhs?.tipHeight, 0),
+    ) > pickNumber(live.localHeight, 0);
+  const allowResetReplace = resetEpochAdvance || resetBootstrapRollback || resetLocalRollback;
   if (hasOwn("bootstrapHeight")) next.bootstrapHeight = pickNumber(live.bootstrapHeight, next.bootstrapHeight);
   if (hasOwn("sessionEpoch")) next.sessionEpoch = allowResetReplace
     ? liveSessionEpoch
@@ -1834,10 +1839,12 @@ function mergeLiveSyncSnapshot(targetSync, liveSync) {
     nextBhsTipHeight,
   );
   next.lag = Math.max(0, next.highestBlock - next.localHeight);
-  next.p2pHeaderCursorHeight = Math.max(
-    pickNumber(next.p2pHeaderCursorHeight, 0),
-    pickNumber(live.p2pHeaderCursorHeight, next.p2pHeaderCursorHeight),
-  );
+  next.p2pHeaderCursorHeight = allowResetReplace
+    ? Math.max(0, pickNumber(live.p2pHeaderCursorHeight, next.p2pHeaderCursorHeight))
+    : Math.max(
+      pickNumber(next.p2pHeaderCursorHeight, 0),
+      pickNumber(live.p2pHeaderCursorHeight, next.p2pHeaderCursorHeight),
+    );
   next.p2pTipHeight = Math.max(
     pickNumber(next.p2pTipHeight, 0),
     pickNumber(live.p2pTipHeight, next.p2pTipHeight),
@@ -2698,6 +2705,117 @@ function walletAvailabilityGateStatus() {
     label: tr("wallet_state_unknown", "State unknown"),
     tip: lagPolicy.walletReason || tr("wallet_state_unknown_tip", "Current wallet runtime did not return a clear gate status."),
   };
+}
+
+function businessSyncGateStatus() {
+  const sync = state.sync || {};
+  const lagPolicy = state.runtime?.lagPolicy || {};
+  const localHeight = Math.max(0, Number(sync.localHeight || 0), Number(sync.fixedSyncLastHeight || 0));
+  const highestBlock = Math.max(0, Number(sync.highestBlock || sync.networkHeight || sync?.bhs?.tipHeight || 0));
+  const heightLag = highestBlock > 0 ? highestBlock - localHeight : 0;
+  const lag = Math.max(0, Number(sync.lag || 0), Number(lagPolicy.lag || 0), Number(heightLag || 0));
+  const mode = String(lagPolicy.mode || sync.mode || "").trim().toLowerCase();
+  const independentPhase = String(sync.independentPhaseRaw || sync.independentPhase || "").trim().toLowerCase();
+  const activeSyncNodes = Math.max(
+    0,
+    Number(sync.activeSyncNodes || 0),
+    Number(sync.syncWorkerNodes || 0),
+    Array.isArray(sync.activeSyncNodeList) ? sync.activeSyncNodeList.length : 0,
+    Array.isArray(sync.syncWorkerNodeList) ? sync.syncWorkerNodeList.length : 0,
+  );
+  const runningPhase = ["round_running", "round_committing", "running"].includes(independentPhase);
+  const blocked = mode === "full_sync"
+    || mode === "catchup_sync"
+    || state.ui?.resyncFlow?.active === true
+    || runningPhase
+    || (activeSyncNodes > 0 && independentPhase && !["idle", "done", "failed"].includes(independentPhase))
+    || lag >= 16;
+  const runtimeReason = String(lagPolicy.walletReason || state.runtime?.wallet?.policy?.reason || "").trim();
+  const reason = runtimeReason || trf("business_disabled_syncing", { lag }, `正在同步区块，当前落后 ${lag} 个块。同步完成前下单、网盘和聊天暂不可用。`);
+  return { blocked, lag, reason };
+}
+
+function requireBusinessAvailable() {
+  const gate = businessSyncGateStatus();
+  if (!gate.blocked) return true;
+  toast(gate.reason);
+  return false;
+}
+
+function productDetailBuyDisabledReason(product = null) {
+  const gate = businessSyncGateStatus();
+  const ownProduct = product && (isOwnedProduct(product) || String(product?.merchantId || "") === String(state.currentMerchantId || ""));
+  if (product?.deleted === true) return tr("product_deleted_order_disabled", "商品已删除，不能下单。");
+  if (ownProduct) return tr("own_product_order_disabled", "不能购买自己发布的商品。");
+  if (gate.blocked) return gate.reason;
+  return "";
+}
+
+function syncProductDetailBuyState() {
+  if (!els.btnProductDetailBuy) return;
+  const productId = String(els.btnProductDetailBuy.dataset.productId || "").trim();
+  if (!productId) return;
+  const product = productById(productId);
+  const disabledReason = productDetailBuyDisabledReason(product);
+  els.btnProductDetailBuy.disabled = Boolean(disabledReason);
+  els.btnProductDetailBuy.title = disabledReason;
+  if (els.productDetailQuantity && product) {
+    els.productDetailQuantity.disabled = product.deleted === true || businessSyncGateStatus().blocked;
+  }
+}
+
+function applyBusinessSyncDisabledState() {
+  const gate = businessSyncGateStatus();
+  const blocked = gate.blocked;
+  const title = blocked ? gate.reason : "";
+  const markDisabled = (el, forceEnable = false) => {
+    if (!el) return;
+    if (blocked) {
+      el.disabled = true;
+      el.title = title;
+      el.dataset.businessSyncDisabled = "1";
+      return;
+    }
+    if (el.dataset?.businessSyncDisabled === "1") {
+      if (forceEnable) el.disabled = false;
+      el.title = "";
+      delete el.dataset.businessSyncDisabled;
+    }
+  };
+  markDisabled(els.btnChat, true);
+  markDisabled(els.btnDrive, true);
+  const controls = [
+    els.btnChatP2pConnect,
+    els.btnChatToggleOnline,
+    els.btnChatFriendAction,
+    els.btnChatCreateGroup,
+    els.btnChatBlockAction,
+    els.btnChatSearch,
+    els.btnChatAttach,
+    els.btnDriveNewDir,
+    els.btnDriveUpload,
+    els.btnDriveRefresh,
+    els.btnPickDriveRootDir,
+  ];
+  controls.forEach((el) => markDisabled(el, false));
+  if (els.chatInput && blocked) {
+    els.chatInput.disabled = true;
+    els.chatInput.title = title;
+    els.chatInput.dataset.businessSyncDisabled = "1";
+  } else if (els.chatInput?.dataset?.businessSyncDisabled === "1") {
+    els.chatInput.title = "";
+    delete els.chatInput.dataset.businessSyncDisabled;
+  }
+  if (els.btnSendChat && blocked) {
+    els.btnSendChat.disabled = true;
+    els.btnSendChat.title = title;
+    els.btnSendChat.dataset.businessSyncDisabled = "1";
+  } else if (els.btnSendChat?.dataset?.businessSyncDisabled === "1") {
+    els.btnSendChat.title = "";
+    delete els.btnSendChat.dataset.businessSyncDisabled;
+  }
+  syncProductDetailBuyState();
+  if (!blocked && isChatModalOpen()) renderChatStatusBar();
 }
 
 function formatSignedBsv(value) {
@@ -4643,6 +4761,7 @@ function syncStewardFormFromState() {
 }
 
 async function runBuyerProductPurchase(productId) {
+  if (!requireBusinessAvailable()) return;
   const safeProductId = String(productId || "").trim();
   const product = productById(safeProductId);
   if (!product) return toast(tr("product_not_found", "Product not found"));
@@ -5757,20 +5876,24 @@ function isChatThreadLoading(walletId = state.chat.activeWalletId, mode = state.
 }
 
 function updateChatComposeState() {
+  const businessGate = businessSyncGateStatus();
   const walletId = String(state.chat.activeWalletId || "").trim();
   const hasActive = Boolean(walletId);
   if (els.chatInput) {
-    els.chatInput.disabled = !hasActive;
+    els.chatInput.disabled = !hasActive || businessGate.blocked;
+    els.chatInput.title = businessGate.blocked ? businessGate.reason : "";
   }
   if (els.btnSendChat) {
     const backendReady = hasActive && isChatThreadBackendReady(walletId, state.chat.mode, state.chat.activeOrderId);
     const loading = hasActive && isChatThreadLoading(walletId, state.chat.mode, state.chat.activeOrderId);
-    els.btnSendChat.disabled = !hasActive || !backendReady;
-    els.btnSendChat.title = !hasActive
+    els.btnSendChat.disabled = !hasActive || !backendReady || businessGate.blocked;
+    els.btnSendChat.title = businessGate.blocked
+      ? businessGate.reason
+      : (!hasActive
       ? tr("chat_select_contact_first", "请先选择一个联系人")
       : (!backendReady
         ? (loading ? tr("chat_thread_loading", "正在加载聊天记录") : tr("chat_thread_not_ready", "聊天后台状态未就绪"))
-        : "");
+        : ""));
   }
   updateChatLoadMoreState();
 }
@@ -6358,6 +6481,7 @@ function renderChatStatusBar(status = null) {
 }
 
 async function searchChatUsers() {
+  if (!requireBusinessAvailable()) return;
   const q = String(els.chatSearchInput?.value || "").trim();
   state.chat.searchQuery = q;
   if (!q) {
@@ -7050,6 +7174,7 @@ function renderHeader() {
   els.sellerHint.textContent = tr("seller_hint_runtime", "Product lists come from synced on-chain data. Local demo samples are no longer kept.");
 
   updateEditingInteractivity();
+  applyBusinessSyncDisabledState();
 }
 
 function currentCategoryEditorPayload() {
@@ -8317,6 +8442,7 @@ function toggleChatDisplayMenu() {
 }
 
 async function openGlobalChat(options = {}) {
+  if (!requireBusinessAvailable()) return;
   state.chat.openPerfStartedAt = performance.now();
   debugChatOpenPerf("click");
   state.chat.mode = "global";
@@ -8354,6 +8480,7 @@ async function openGlobalChat(options = {}) {
 }
 
 async function openChatThreadWindow(options = {}) {
+  if (!requireBusinessAvailable()) return;
   const walletId = String(options.walletId || "").trim();
   if (!walletId) return;
   state.chat.mode = String(options.mode || "global").trim() || "global";
@@ -8489,6 +8616,7 @@ function openChatFeeModal(preview = {}) {
 }
 
 async function sendChat() {
+  if (!requireBusinessAvailable()) return;
   const text = els.chatInput.value.trim();
   const attachments = Array.isArray(state.chat.pendingAttachments) ? state.chat.pendingAttachments.slice() : [];
   if ((!text && !attachments.length) || !state.chat.activeWalletId) return;
@@ -8800,6 +8928,7 @@ async function uploadChatAttachmentFile(file) {
 }
 
 async function handleChatAttachmentInputChange() {
+  if (!requireBusinessAvailable()) return;
   const files = Array.from(els.chatAttachmentInput?.files || []);
   if (!files.length) return;
   const remainingSlots = Math.max(0, 4 - Math.max(0, Number(state.chat.pendingAttachments?.length || 0)));
@@ -8819,6 +8948,7 @@ async function handleChatAttachmentInputChange() {
 }
 
 async function triggerChatConnectTest(walletId) {
+  if (!requireBusinessAvailable()) return;
   const targetWalletId = String(walletId || state.chat.activeWalletId || "").trim();
   if (!targetWalletId) return toast(tr("chat_select_contact_first", "请先选择一个联系人"));
   beginChatConnectCountdown(targetWalletId);
@@ -8850,6 +8980,7 @@ async function triggerChatConnectTest(walletId) {
 }
 
 async function triggerChatDisconnect(walletId) {
+  if (!requireBusinessAvailable()) return;
   const targetWalletId = String(walletId || state.chat.activeWalletId || "");
   if (!targetWalletId) return toast(tr("chat_select_contact_first", "请先选择一个联系人"));
   removeChatConnectState(targetWalletId);
@@ -8870,6 +9001,7 @@ async function triggerChatDisconnect(walletId) {
 }
 
 async function toggleChatOnlineState() {
+  if (!requireBusinessAvailable()) return;
   const nextOnline = !(state.chat.selfState?.online !== false);
   if (els.btnChatToggleOnline) els.btnChatToggleOnline.disabled = true;
   try {
@@ -8951,6 +9083,7 @@ function refreshChatThreadsInBackground() {
 }
 
 async function sendChatFriendRequest(walletId) {
+  if (!requireBusinessAvailable()) return;
   const id = String(walletId || "").trim();
   if (!id) return;
   const thread = threadByWalletId(id);
@@ -8970,6 +9103,7 @@ async function sendChatFriendRequest(walletId) {
 }
 
 async function acceptChatFriendRequest(walletId) {
+  if (!requireBusinessAvailable()) return;
   const id = String(walletId || "").trim();
   if (!id) return;
   const result = await runSynchronousChainAction(
@@ -8986,6 +9120,7 @@ async function acceptChatFriendRequest(walletId) {
 }
 
 async function rejectChatFriendRequest(walletId) {
+  if (!requireBusinessAvailable()) return;
   const id = String(walletId || "").trim();
   if (!id) return;
   const result = await runSynchronousChainAction(
@@ -9002,6 +9137,7 @@ async function rejectChatFriendRequest(walletId) {
 }
 
 async function runChatBlockAction() {
+  if (!requireBusinessAvailable()) return;
   closeChatMenu();
   const thread = currentChatThread();
   if (!thread) return;
@@ -9990,6 +10126,7 @@ async function fetchDriveTree(dirPath = null, options = {}) {
 }
 
 async function saveDriveRootLocalDir() {
+  if (!requireBusinessAvailable()) return;
   const rootLocalDir = String(state.drive.pickerPath || els.driveRootDirInput?.value || "").trim();
   if (!rootLocalDir) {
     toast(tr("drive_root_dir_required", "请先填写服务器本地根目录"));
@@ -10005,6 +10142,7 @@ async function saveDriveRootLocalDir() {
 }
 
 async function openDriveExplorer() {
+  if (!requireBusinessAvailable()) return;
   if (els.driveModal) els.driveModal.classList.remove("hidden");
   state.drive.loading = true;
   renderDriveExplorer();
@@ -10057,11 +10195,13 @@ async function fetchServerDirListing(dirPath = "") {
 }
 
 async function openDriveDirPicker() {
+  if (!requireBusinessAvailable()) return;
   await fetchServerDirListing(state.drive.rootLocalDir || "");
   if (els.driveDirPickerModal) els.driveDirPickerModal.classList.remove("hidden");
 }
 
 function openDriveMkdirModal(parentPath = "") {
+  if (!requireBusinessAvailable()) return;
   const safeParentPath = String(parentPath || state.drive.currentPath || "/").trim() || "/";
   state.drive.mkdirParentPath = safeParentPath;
   if (els.driveMkdirCurrentPath) els.driveMkdirCurrentPath.textContent = safeParentPath;
@@ -10076,6 +10216,7 @@ function closeDriveMkdirModal() {
 }
 
 function openDriveRenameDirModal(node = {}) {
+  if (!requireBusinessAvailable()) return;
   const dirId = String(node.dirId || "").trim();
   if (!dirId || String(node.path || "/") === "/") return;
   state.drive.pendingRenameDir = { ...node };
@@ -10260,6 +10401,7 @@ function openDriveDeleteConfirmModal(entry = {}) {
 }
 
 async function downloadDriveFileToServer(fileId) {
+  if (!requireBusinessAvailable()) return;
   const result = await api("/api/drive/download/server", {
     method: "POST",
     body: { fileId },
@@ -10272,6 +10414,7 @@ async function downloadDriveFileToServer(fileId) {
 }
 
 async function downloadDriveDirToServer(dirId) {
+  if (!requireBusinessAvailable()) return;
   const result = await api("/api/drive/download/server", {
     method: "POST",
     body: { dirId },
@@ -10282,6 +10425,7 @@ async function downloadDriveDirToServer(dirId) {
 }
 
 async function anchorDriveFile(fileId) {
+  if (!requireBusinessAvailable()) return;
   const result = await api(`/api/drive/file/${encodeURIComponent(String(fileId || ""))}/anchor`, {
     method: "POST",
     body: {},
@@ -10302,6 +10446,7 @@ function downloadDriveFileInBrowser(fileId) {
 }
 
 async function maybeDownloadDriveFileFromClick(fileId) {
+  if (!requireBusinessAvailable()) return;
   const safeFileId = String(fileId || "").trim();
   if (!safeFileId || safeFileId.startsWith("upload:")) return;
   const file = (Array.isArray(state.drive.files) ? state.drive.files : [])
@@ -10313,6 +10458,7 @@ async function maybeDownloadDriveFileFromClick(fileId) {
 }
 
 async function createDriveDirectory() {
+  if (!requireBusinessAvailable()) return;
   const name = String(els.driveMkdirName?.value || "").trim();
   if (!name) return;
   const basePath = normalizeDrivePath(state.drive.mkdirParentPath || state.drive.currentPath || "/");
@@ -10388,6 +10534,7 @@ function driveSpendableUtxoDetailMessage(error) {
 }
 
 async function renameDriveDirectory(node = {}, nextNameRaw = "") {
+  if (!requireBusinessAvailable()) return;
   const dirId = String(node.dirId || "").trim();
   const oldName = String(node.name || "").trim();
   if (!dirId || String(node.path || "/") === "/") return;
@@ -10458,6 +10605,7 @@ async function confirmDriveRenameDir() {
 }
 
 async function deleteDriveEntry(targetType, targetId) {
+  if (!requireBusinessAvailable()) return;
   const safeType = String(targetType || "").trim();
   const safeId = String(targetId || "").trim();
   if (isDriveEntryDeleting(safeType, safeId)) return;
@@ -10504,6 +10652,7 @@ async function deleteDriveEntry(targetType, targetId) {
 }
 
 async function prepareDriveUploadFile(file, dirPath) {
+  if (!requireBusinessAvailable()) return null;
   if (!file) return;
   let taskId = "";
   let buffer = new Uint8Array(0);
@@ -10599,6 +10748,7 @@ async function prepareDriveUploadFile(file, dirPath) {
 }
 
 async function confirmPreparedDriveUploads(preparedRows) {
+  if (!requireBusinessAvailable()) return;
   const rows = Array.isArray(preparedRows) ? preparedRows.filter(Boolean) : [];
   if (!rows.length) return;
   const previews = rows.map((row) => row.preview || {});
@@ -10648,6 +10798,7 @@ async function confirmPreparedDriveUploads(preparedRows) {
 }
 
 async function confirmExistingDriveUploadTask(taskId) {
+  if (!requireBusinessAvailable()) return;
   const safeTaskId = String(taskId || "").trim();
   if (!safeTaskId) return;
   await api(`/api/drive/upload/${encodeURIComponent(safeTaskId)}/finish`, {
@@ -10661,6 +10812,7 @@ async function confirmExistingDriveUploadTask(taskId) {
 }
 
 async function resumeDriveUploadTask(taskId) {
+  if (!requireBusinessAvailable()) return;
   const safeTaskId = String(taskId || "").trim();
   if (!safeTaskId) return;
   const previous = state.drive.uploadProgress?.[safeTaskId]
@@ -10711,6 +10863,7 @@ async function cancelDriveUploadTask(taskId) {
 }
 
 async function uploadFilesToCurrentDriveDir(files) {
+  if (!requireBusinessAvailable()) return;
   const selected = Array.from(files || []).filter(Boolean);
   if (!selected.length) return;
   const dirPath = state.drive.currentPath || "/";

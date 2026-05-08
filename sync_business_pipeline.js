@@ -307,7 +307,7 @@ async function finalizeSyncBusinessState(context = {}, deps = {}) {
     'sync_final_state_saved',
     syncFinalFollowupDelayMs,
     finalState,
-    { domains: ['sync'] },
+    { domains: ['sync', 'catalog', 'profile', 'order', 'chat'] },
   );
 
   if (deps.shouldRefreshWalletIndexForSync?.(finalState)) {

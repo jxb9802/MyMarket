@@ -1,14 +1,44 @@
 {
-  "name": "bsv-market",
+  "name": "@jxb9802/bsv-market",
   "version": "1.0.0",
-  "private": true,
+  "private": false,
   "description": "BSV market prototype with wallet and on-chain anchor APIs",
   "main": "server_market.js",
   "type": "commonjs",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jxb9802/MyMarket.git"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
+  "files": [
+    "*.js",
+    "*.json",
+    "*.css",
+    "*.html",
+    "*.md",
+    "chat_service/",
+    "docs/",
+    "lib/",
+    "locales/",
+    "main_runtime/",
+    "scripts/",
+    "shared/",
+    "tools/",
+    "trade_service/",
+    "wallet_service/",
+    "market_ctl.sh",
+    "start.bat",
+    "start.sh"
+  ],
   "scripts": {
     "start": "node server_market.js",
     "bhs:start": "node block_headers_service.js",
     "test": "node --test",
+    "test:publish": "node --test test/anchor_track_outputs_regression.test.js",
+    "pack:dry-run": "npm pack --dry-run",
+    "publish:github": "npm publish --registry=https://npm.pkg.github.com",
     "p2p:device": "node tools/p2p_probe_device.js",
     "bench:forward-probe": "node scripts/benchmark_forward_probe.js",
     "bench:headers-fetch": "node scripts/benchmark_headers_fetch.js",

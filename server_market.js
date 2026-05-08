@@ -3503,11 +3503,12 @@ function mapTopicToFrontendDomains(topic = '', reason = '', payload = null) {
   if (
     safeTopic === 'sync.runtime.updated'
     || safeTopic === 'sync_state_saved'
-    || safeTopic === 'sync_final_state_saved'
     || safeReason === 'sync_state_saved'
-    || safeReason === 'sync_final_state_saved'
     || safeTopic.startsWith('bhs.')
   ) return ['sync'];
+  if (safeTopic === 'sync_final_state_saved' || safeReason === 'sync_final_state_saved') {
+    return ['sync', 'catalog', 'profile', 'order', 'chat'];
+  }
   if (safeTopic === 'wallet.index.updated') return ['wallet'];
   if (safeTopic === 'wallet.read_model.updated') return ['wallet'];
   if (safeTopic === 'order.updated') return ['order'];
@@ -11457,10 +11458,25 @@ async function resetSyncArtifactsForBootstrap(options = {}) {
   const bootstrapHeight = Math.max(0, Number(options?.bootstrapHeight || FIXED_SYNC_BOOTSTRAP_HEIGHT));
   const resetEpoch = Math.max(0, Number(options?.resetEpoch || 0));
   const reason = String(options?.reason || 'sync_reset_artifacts');
-  const localHeight = Math.max(0, bootstrapHeight - 1);
   const syncState = options?.syncState && typeof options.syncState === 'object'
     ? options.syncState
     : {};
+  const bootstrapIndexMeta = getSyncBootstrapIndexMeta(syncState);
+  const localHeight = Math.max(
+    Math.max(0, bootstrapHeight - 1),
+    Number(syncState.localHeight || 0),
+    Number(syncState.fixedSyncLastHeight || 0),
+    Number(syncState.independentLocalHeight || 0),
+    Number(syncState.receiptCommittedHeight || 0),
+    Number(syncState.businessRecoveredHeight || 0),
+    Number(bootstrapIndexMeta?.recoveredHeight || 0),
+    Number(bootstrapIndexMeta?.toHeight || 0),
+  );
+  const fixedSyncLastHeight = Math.max(
+    Math.max(0, bootstrapHeight - 1),
+    Number(syncState.fixedSyncLastHeight || 0),
+    localHeight,
+  );
   const targetHeight = syncState.manualQuickstartPending === true
     ? Math.max(0, Number(syncState.independentTargetHeight || syncState.p2pTipHeight || 0))
     : 0;
@@ -11505,7 +11521,7 @@ async function resetSyncArtifactsForBootstrap(options = {}) {
     ...syncState,
     bootstrapHeight,
     localHeight,
-    fixedSyncLastHeight: 0,
+    fixedSyncLastHeight,
     receiptCommittedHeight: localHeight,
     independentPhase: 'idle',
     independentLocalHeight: localHeight,
@@ -11530,7 +11546,7 @@ async function resetSyncArtifactsForBootstrap(options = {}) {
       ...syncState,
       bootstrapHeight,
       localHeight,
-      fixedSyncLastHeight: 0,
+      fixedSyncLastHeight,
       targetHeight,
       sessionEpoch: resetEpoch,
     },
@@ -11541,6 +11557,8 @@ async function resetSyncArtifactsForBootstrap(options = {}) {
     resetEpoch,
     reason,
     localHeight,
+    fixedSyncLastHeight,
+    bootstrapIndexToHeight: Number(bootstrapIndexMeta?.toHeight || 0),
   });
 }
 
@@ -16398,6 +16416,7 @@ function processP2PTransactionForAnchorRows(tx, context = {}) {
     try {
       const summary = wallet.buildConfirmedBlockTxSummary(walletTxInput, {
         txIndex,
+        firstSeenHeight: height,
         hints: walletTouchHints,
       });
       if (summary) {
@@ -16651,6 +16670,7 @@ function applyConfirmedWalletTxSummaries(summaries = []) {
     if (typeof wallet.applyConfirmedTxSummaryToSpvIndex !== 'function') continue;
     if (wallet.applyConfirmedTxSummaryToSpvIndex(summary, {
       confirmed: true,
+      firstSeenHeight: Number(summary?.firstSeenHeight || summary?.blockHeight || 0),
       source: 'independent_sync_commit',
     })) {
       applied += 1;
@@ -17137,6 +17157,7 @@ async function syncAnchorsFromP2P(state, options = {}) {
   let skippedContiguous = 0;
   let scannedBlocks = 0;
   let scannedTx = 0;
+  let appliedWalletTxSummaries = 0;
   let firstVisibleStateSaved = false;
   const scanDiag = {
     outputsSeen: 0,
@@ -17466,6 +17487,8 @@ async function syncAnchorsFromP2P(state, options = {}) {
         `p2p block parse timeout: ${winnerNode} h=${blockState.height}`,
       );
       scannedTx += Number(found.txCount || 0);
+      const walletSummaryApplyCount = applyConfirmedWalletTxSummaries(found.walletTxSummaries || []);
+      appliedWalletTxSummaries += Number(walletSummaryApplyCount || 0);
       const blockDiag = found?.diag || {};
       scanDiag.outputsSeen += Number(blockDiag.outputsSeen || 0);
       scanDiag.opReturnOutputs += Number(blockDiag.opReturnOutputs || 0);
@@ -17554,6 +17577,8 @@ async function syncAnchorsFromP2P(state, options = {}) {
         connectElapsedMs: Number(winner?.connectElapsedMs || 0),
         getBlockElapsedMs: Number(winner?.getBlockElapsedMs || 0),
         txCount: Number(found.txCount || 0),
+        walletTxSummaries: Array.isArray(found.walletTxSummaries) ? found.walletTxSummaries.length : 0,
+        walletApplied: Number(walletSummaryApplyCount || 0),
         anchorsFound: Array.isArray(found.rows) ? found.rows.length : 0,
         loserNodes: okResults
           .map((row) => String(row?.node || '').trim())
@@ -17831,6 +17856,8 @@ async function syncAnchorsFromP2P(state, options = {}) {
           const found = fetchResult?.extracted || { rows: [], txCount: 0, diag: createEmptyP2PExtractDiag() };
           if (!isAttemptStillActive(task.taskState, task.attemptId, node)) continue;
           scannedTx += Number(found.txCount || 0);
+          const walletSummaryApplyCount = applyConfirmedWalletTxSummaries(found.walletTxSummaries || []);
+          appliedWalletTxSummaries += Number(walletSummaryApplyCount || 0);
           const blockDiag = found?.diag || {};
           scanDiag.outputsSeen += Number(blockDiag.outputsSeen || 0);
           scanDiag.opReturnOutputs += Number(blockDiag.opReturnOutputs || 0);
@@ -17924,6 +17951,8 @@ async function syncAnchorsFromP2P(state, options = {}) {
             streamPayloadBytesPerSec,
             streamSpeedPolicy: fetchResult?.streamSpeedPolicy || null,
             txCount: Number(found.txCount || 0),
+            walletTxSummaries: Array.isArray(found.walletTxSummaries) ? found.walletTxSummaries.length : 0,
+            walletApplied: Number(walletSummaryApplyCount || 0),
             anchorsFound: Array.isArray(found.rows) ? found.rows.length : 0,
             loserNodes: (Array.isArray(task.taskState.activeAttempts) ? task.taskState.activeAttempts : [])
               .map((attempt) => String(attempt?.node || '').trim())
@@ -18208,11 +18237,12 @@ async function syncAnchorsFromP2P(state, options = {}) {
     tipHeight,
     selectedNodes,
     headerNode: headerSync.node || '',
-      scannedBlocks,
-      maxBlocksThisRound,
-      scannedTx,
+    scannedBlocks,
+    maxBlocksThisRound,
+    scannedTx,
     foundRows: rows.length,
     addedAnchors,
+    walletApplied: appliedWalletTxSummaries,
     refreshedConfirmed,
     droppedRecentRawtxs,
     taskCount: plannedTaskCount,
@@ -18274,9 +18304,10 @@ async function syncAnchorsFromP2P(state, options = {}) {
     scannedBlocks,
     scannedTx,
     addedAnchors,
+    walletApplied: appliedWalletTxSummaries,
     failedTasks: failedHeights.size,
   }));
-  return { scannedBlocks, scannedTx, addedAnchors };
+  return { scannedBlocks, scannedTx, addedAnchors, walletApplied: appliedWalletTxSummaries };
   } finally {
     selectedNodeLeases.forEach((lease) => {
       if (lease && typeof lease.release === 'function') lease.release({ outcome: 'sync_scope_exit' });

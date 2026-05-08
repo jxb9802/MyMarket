@@ -367,10 +367,30 @@ async function commitWindow({ windowStart, windowEnd, blocks, preferredNodes, on
     Number(state?.sync?.fixedSyncLastHeight || 0),
     Number(state?.sync?.localHeight || 0),
   );
+  const successfulBlocks = (Array.isArray(blocks) ? blocks : [])
+    .slice()
+    .sort((a, b) => Number(a.height || 0) - Number(b.height || 0))
+    .filter((blockState) => blockState && blockState.success === true);
+  const contiguousBlocks = [];
+  for (let height = initialCommittedHeight + 1; ; height += 1) {
+    const nextBlock = successfulBlocks.find((blockState) => Number(blockState?.height || 0) === height);
+    if (!nextBlock) break;
+    contiguousBlocks.push(nextBlock);
+  }
+  const skippedSuccessCount = Math.max(0, successfulBlocks.length - contiguousBlocks.length);
+  if (successfulBlocks.length > 0 && contiguousBlocks.length === 0) {
+    emitEvent(onEvent, 'independent_sync_commit_gap_detected', {
+      windowStart: Number(windowStart || 0),
+      windowEnd: Number(windowEnd || 0),
+      initialCommittedHeight,
+      expectedHeight: initialCommittedHeight + 1,
+      firstSuccessfulHeight: Number(successfulBlocks[0]?.height || 0),
+      successfulCount: successfulBlocks.length,
+    });
+  }
   const committed = [];
   const commitStartedAt = Date.now();
-  for (const blockState of (Array.isArray(blocks) ? blocks : []).slice().sort((a, b) => Number(a.height || 0) - Number(b.height || 0))) {
-    if (!blockState || blockState.success !== true) continue;
+  for (const blockState of contiguousBlocks) {
     if (typeof shouldCancel === 'function' && shouldCancel()) throw buildSyncCancelledError();
     // eslint-disable-next-line no-await-in-loop
     committed.push(await commitSuccessfulBlock(state, blockState, {
@@ -471,6 +491,7 @@ async function commitWindow({ windowStart, windowEnd, blocks, preferredNodes, on
     windowStart: Number(windowStart || 0),
     windowEnd: Number(windowEnd || 0),
     committedCount: committed.length,
+    skippedSuccessCount,
     receiptCommittedHeight,
     initialCommittedHeight,
     loadElapsedMs,
@@ -502,6 +523,9 @@ async function commitWindow({ windowStart, windowEnd, blocks, preferredNodes, on
     state,
     status,
     committed,
+    receiptCommittedHeight,
+    initialCommittedHeight,
+    skippedSuccessCount,
     stateSaveElapsedMs,
   };
 }

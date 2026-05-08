@@ -1773,6 +1773,7 @@ async function runSync(options = {}) {
       let roundsElapsedMs = 0;
       let commitElapsedMs = 0;
       let roundCount = 0;
+      let nextCursorOverride = 0;
       while (true) {
         if (shouldCancel()) {
           syncRuntime.finishRun({ summary: null, error: new Error('sync cancelled') });
@@ -1874,6 +1875,21 @@ async function runSync(options = {}) {
             Number(windowSummary.committedLocalHeight || 0),
             Number(commitResult?.status?.localHeight || 0),
           );
+          const committedLocalHeight = Math.max(
+            0,
+            Number(commitResult?.receiptCommittedHeight || 0),
+            Number(commitResult?.status?.localHeight || 0),
+          );
+          if (committedLocalHeight < windowEnd && cursor > committedLocalHeight + 1) {
+            nextCursorOverride = committedLocalHeight + 1;
+            emitEvent(context.onEvent, 'independent_sync_window_rewind_after_commit_gap', {
+              windowStart: cursor,
+              windowEnd,
+              committedLocalHeight,
+              nextCursor: nextCursorOverride,
+              skippedSuccessCount: Number(commitResult?.skippedSuccessCount || 0),
+            });
+          }
           commitElapsedMs += (Date.now() - commitStartedAt);
         }
         completedInWindow.forEach((row) => releaseBlockStatePayload(row));
@@ -1936,6 +1952,10 @@ async function runSync(options = {}) {
       }
       if (onWindow) onWindow(windowSummary, blocks);
       if (failedInWindow.length > 0) break;
+      if (nextCursorOverride > 0 && nextCursorOverride < windowEnd + 1) {
+        cursor = nextCursorOverride;
+        continue;
+      }
       cursor = windowEnd + 1;
     }
 
