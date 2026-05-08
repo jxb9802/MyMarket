@@ -23654,6 +23654,19 @@ app.post('/api/sync/reset-local', walletAuthRequired, async (req, res) => {
       return fail(res, 'confirmReset is required');
     }
     const previous = buildProjectionBackedState(req);
+    let walletSyncHintUpgrade = null;
+    try {
+      walletSyncHintUpgrade = wallet.ensureWalletSyncHintsBackfilled({
+        source: 'manual_sync_state_reset_preflight',
+      });
+    } catch (hintErr) {
+      walletSyncHintUpgrade = {
+        upgraded: false,
+        reason: 'wallet_sync_hint_upgrade_failed',
+        error: String(hintErr?.message || hintErr || ''),
+      };
+      appendMarketDebug('wallet_sync_hint_upgrade_failed', walletSyncHintUpgrade);
+    }
     const stopResult = await stopSyncAndWait({
       reason: 'manual_sync_state_reset',
       timeoutMs: Number(req.body?.timeoutMs || 20000),
@@ -23703,6 +23716,7 @@ app.post('/api/sync/reset-local', walletAuthRequired, async (req, res) => {
       bootstrapHeight,
       resetEpoch,
       bootstrapIndex: bootstrapIndexResult,
+      walletSyncHintUpgrade,
       stopResult,
       warning: 'local sync state reset to initialized state',
     });

@@ -271,6 +271,19 @@ function registerCatalogRoutes(app, deps = {}) {
     }
     setLastManualCatalogResyncAtMs?.(nowMs);
     const previous = loadWritableProjectionState(req);
+    let walletSyncHintUpgrade = null;
+    try {
+      walletSyncHintUpgrade = wallet.ensureWalletSyncHintsBackfilled({
+        source: 'catalog_resync_preflight',
+      });
+    } catch (hintErr) {
+      walletSyncHintUpgrade = {
+        upgraded: false,
+        reason: 'wallet_sync_hint_upgrade_failed',
+        error: String(hintErr?.message || hintErr || ''),
+      };
+      appendMarketDebug('wallet_sync_hint_upgrade_failed', walletSyncHintUpgrade);
+    }
     const queueBeforeReset = deps.loadCommandQueueState({ fresh: true });
     const commandsBeforeReset = Array.isArray(queueBeforeReset?.commands) ? queueBeforeReset.commands : [];
     const jobBeforeReset = loadJobState({ fresh: true })?.currentJob || null;
@@ -364,6 +377,7 @@ function registerCatalogRoutes(app, deps = {}) {
       resetEpoch,
       bootstrapHeight,
       bootstrapIndex: bootstrapIndexResult,
+      walletSyncHintUpgrade,
       interruptedExistingSync: hadActiveSyncBeforeReset,
       interruptedCount,
       drainWaitMs: Math.max(0, Date.now() - drainStartedAtMs),

@@ -1935,6 +1935,50 @@ function getWalletSyncHints() {
   };
 }
 
+function ensureWalletSyncHintsBackfilled(options = {}) {
+  const state = getWalletState();
+  const previous = state.syncHints && typeof state.syncHints === 'object' ? state.syncHints : {};
+  const hasCreatedHeight = normalizeWalletSyncHeight(previous.createdAtHeight) > 0;
+  const hasEarliestHeight = normalizeWalletSyncHeight(previous.earliestTxHeight) > 0;
+  if (hasCreatedHeight && hasEarliestHeight) {
+    return {
+      upgraded: false,
+      reason: 'already_has_wallet_sync_hints',
+      hints: getWalletSyncHints(),
+    };
+  }
+  const earliestTxHeight = deriveEarliestLocalWalletTxHeight();
+  if (!earliestTxHeight) {
+    return {
+      upgraded: false,
+      reason: 'no_local_wallet_tx_height',
+      hints: getWalletSyncHints(),
+    };
+  }
+  const now = new Date().toISOString();
+  const next = {
+    ...previous,
+    createdAtHeight: hasCreatedHeight ? normalizeWalletSyncHeight(previous.createdAtHeight) : earliestTxHeight,
+    earliestTxHeight: hasEarliestHeight ? normalizeWalletSyncHeight(previous.earliestTxHeight) : earliestTxHeight,
+    createdAt: previous.createdAt || now,
+    upgradedAt: now,
+    source: String(options.source || 'wallet_sync_hint_local_history_upgrade'),
+  };
+  state.syncHints = next;
+  saveWalletState(state);
+  appendSendLog('wallet_sync_hints_backfilled_from_local_history', {
+    earliestTxHeight,
+    createdAtHeight: next.createdAtHeight,
+    source: next.source,
+  });
+  return {
+    upgraded: true,
+    earliestTxHeight,
+    createdAtHeight: next.createdAtHeight,
+    hints: getWalletSyncHints(),
+  };
+}
+
 function getRecommendedWalletScanStartHeight(options = {}) {
   const fallbackHeight = normalizeWalletSyncHeight(options.fallbackHeight);
   const safetyBlocks = Math.max(0, Math.min(144, Math.floor(Number(options.safetyBlocks || 0))));
@@ -13436,6 +13480,7 @@ module.exports = {
   clearWalletLocalIndex,
   updateWalletSyncHints,
   getWalletSyncHints,
+  ensureWalletSyncHintsBackfilled,
   getRecommendedWalletScanStartHeight,
   rebuildWalletIndexFromLocalData,
   rebuildLocalIndexFromQueueRawtxs,
