@@ -23674,6 +23674,7 @@ app.post('/api/sync/reset-local', walletAuthRequired, async (req, res) => {
       resetOrdersProjection: () => orderDomain.resetOrdersProjection(),
       resetWalletState: (walletKey) => walletReadDomain.resetWalletState(walletKey),
       resetWalletTxProjection: () => walletTxDomain.resetWalletTxProjection(),
+      clearWalletLocalIndex: (reason) => wallet.clearWalletLocalIndex(reason || 'manual_sync_state_reset'),
       getWalletKey,
     });
     return ok(res, fresh, req, {

@@ -349,6 +349,7 @@ function registerCatalogRoutes(app, deps = {}) {
       resetOrdersProjection: () => orderDomain.resetOrdersProjection(),
       resetWalletState: (walletKey) => walletReadDomain.resetWalletState(walletKey),
       resetWalletTxProjection: () => walletTxDomain.resetWalletTxProjection(),
+      clearWalletLocalIndex: (reason) => wallet.clearWalletLocalIndex(reason || 'catalog_resync_reset'),
       getWalletKey,
     });
     return ok(res, fresh, req, {

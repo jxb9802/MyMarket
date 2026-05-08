@@ -26,6 +26,7 @@ async function performCatalogResyncReset(options = {}) {
     resetOrdersProjection,
     resetWalletState,
     resetWalletTxProjection,
+    clearWalletLocalIndex,
     getWalletKey,
   } = options;
 
@@ -35,6 +36,15 @@ async function performCatalogResyncReset(options = {}) {
 
   clearRuntimeSyncProgress();
   await clearLocalCatalogArtifactsWithRetry();
+
+  await withTransientResetRetries('catalog_resync_reset_wallet_local_index', async () => {
+    if (typeof clearWalletLocalIndex === 'function') {
+      await clearWalletLocalIndex('catalog_resync_reset');
+    }
+  }, {
+    attempts: 3,
+    baseDelayMs: 150,
+  });
 
   const fresh = buildFreshMarketStateForBootstrap(req, previousState?.steward || {}, bootstrapHeight);
   const previousSync = previousState?.sync && typeof previousState.sync === 'object' ? previousState.sync : {};
@@ -162,9 +172,9 @@ async function performCatalogResyncReset(options = {}) {
     bootstrapHeight,
     preservedHashCacheCount: Object.keys(fresh.sync.p2pHeightHashCache || {}).length,
     clearedLocalChanges: true,
-    clearedArtifacts: ['state', 'anchors_global', 'chain_spool', 'chain_spool_state'],
-    clearedProjections: ['catalog', 'profile', 'local_state', 'orders'],
-    clearedStores: ['anchor_events'],
+    clearedArtifacts: ['state', 'anchors_global', 'chain_spool', 'chain_spool_state', 'wallet_local_index'],
+    clearedProjections: ['catalog', 'profile', 'local_state', 'orders', 'wallet'],
+    clearedStores: ['anchor_events', 'wallet_cache', 'wallet_tx_contexts'],
     preservedTipHeight,
   });
 
@@ -211,6 +221,7 @@ async function performLocalSyncStateReset(options = {}) {
     resetOrdersProjection,
     resetWalletState,
     resetWalletTxProjection,
+    clearWalletLocalIndex,
     getWalletKey,
   } = options;
 
@@ -220,6 +231,15 @@ async function performLocalSyncStateReset(options = {}) {
 
   clearRuntimeSyncProgress();
   await clearLocalCatalogArtifactsWithRetry();
+
+  await withTransientResetRetries('manual_sync_state_reset_wallet_local_index', async () => {
+    if (typeof clearWalletLocalIndex === 'function') {
+      await clearWalletLocalIndex('manual_sync_state_reset');
+    }
+  }, {
+    attempts: 3,
+    baseDelayMs: 150,
+  });
 
   const fresh = buildFreshMarketStateForBootstrap(req, previousState?.steward || {}, bootstrapHeight);
   fresh.sync.p2pTipHeight = 0;
@@ -299,9 +319,9 @@ async function performLocalSyncStateReset(options = {}) {
     resetEpoch,
     bootstrapHeight,
     clearedLocalChanges: true,
-    clearedArtifacts: ['state', 'anchors_global', 'chain_spool', 'chain_spool_state', 'p2p_sync_receipts', 'independent_sync_status'],
-    clearedProjections: ['catalog', 'profile', 'local_state', 'orders'],
-    clearedStores: ['anchor_events'],
+    clearedArtifacts: ['state', 'anchors_global', 'chain_spool', 'chain_spool_state', 'p2p_sync_receipts', 'independent_sync_status', 'wallet_local_index'],
+    clearedProjections: ['catalog', 'profile', 'local_state', 'orders', 'wallet'],
+    clearedStores: ['anchor_events', 'wallet_cache', 'wallet_tx_contexts'],
   });
 
   return {
