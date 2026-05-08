@@ -5096,16 +5096,23 @@ async function maybeApplyBootstrapIndexForBusinessSync(state, options = {}) {
   }
   const bootstrapHeight = Math.max(0, Number(state.sync.bootstrapHeight || FIXED_SYNC_BOOTSTRAP_HEIGHT));
   const releaseToHeight = Math.max(0, Number(coverage.toHeight || 0));
-  const localBusinessHeight = Math.max(
+  const localScanHeight = Math.max(
     0,
     Number(state.sync.localHeight || 0),
     Number(state.sync.fixedSyncLastHeight || 0),
   );
+  const existingMeta = getSyncBootstrapIndexMeta(state.sync);
   if (!releaseToHeight || releaseToHeight < bootstrapHeight) {
     return { applied: false, reason: 'release_out_of_range', releaseToHeight, bootstrapHeight };
   }
-  if (localBusinessHeight >= releaseToHeight) {
-    return { applied: false, reason: 'already_covered', localBusinessHeight, releaseToHeight };
+  if (Number(existingMeta?.toHeight || 0) >= releaseToHeight) {
+    return {
+      applied: false,
+      reason: 'already_recovered',
+      recoveredHeight: Number(existingMeta.toHeight || 0),
+      releaseToHeight,
+      localScanHeight,
+    };
   }
   const localTipHash = getBootstrapBhsHeaderHash(releaseToHeight);
   if (!localTipHash) return { applied: false, reason: 'bhs_not_ready', releaseToHeight };
@@ -5124,11 +5131,9 @@ async function maybeApplyBootstrapIndexForBusinessSync(state, options = {}) {
   });
   const now = new Date().toISOString();
   state.sync.bootstrapHeight = bootstrapHeight;
-  state.sync.fixedSyncLastHeight = Math.max(Number(state.sync.fixedSyncLastHeight || 0), releaseToHeight);
-  state.sync.localHeight = Math.max(Number(state.sync.localHeight || 0), releaseToHeight);
+  state.sync.businessRecoveredHeight = Math.max(Number(state.sync.businessRecoveredHeight || 0), releaseToHeight);
   state.sync.targetHeight = Math.max(Number(state.sync.targetHeight || 0), releaseToHeight);
   state.sync.scannedFrom = bootstrapHeight;
-  state.sync.lastP2PAdvanceAt = now;
   const meta = setSyncBootstrapIndexMeta(state.sync, {
     source: String(options.source || 'auto_sync'),
     fromHeight: coverage.fromHeight,
@@ -5137,18 +5142,6 @@ async function maybeApplyBootstrapIndexForBusinessSync(state, options = {}) {
     eventCount: Number(imported.imported || coverage.eventCount || 0),
     warningCount: Number(imported.warnings || 0),
     importedAt: now,
-  });
-  recordPersistedP2PSyncRound({
-    bootstrapHeight,
-    committedHeight: releaseToHeight,
-    perHeight: {
-      [String(releaseToHeight)]: {
-        hash: localTipHash,
-        persistedAt: now,
-        rowsFound: Number(imported.imported || coverage.eventCount || 0),
-        txCount: Number(coverage.txCount || 0),
-      },
-    },
   });
   setRuntimeSyncProgress({
     bootstrapHeight,
@@ -5159,19 +5152,21 @@ async function maybeApplyBootstrapIndexForBusinessSync(state, options = {}) {
   });
   applyDerivedSyncOnline(state.sync);
   appendMarketDebug('bootstrap_index_auto_applied', {
-    previousLocalHeight: localBusinessHeight,
+    previousLocalHeight: localScanHeight,
     releaseToHeight,
     releaseFromHeight: coverage.fromHeight,
     imported: Number(imported.imported || 0),
     warnings: Number(imported.warnings || 0),
-    nextBlockSyncStart: releaseToHeight + 1,
+    nextBlockSyncStart: localScanHeight + 1,
+    walletSafeBlockSyncStart: localScanHeight + 1,
+    businessRecoveredHeight: releaseToHeight,
     source: String(options.source || 'auto_sync'),
   });
   return {
     applied: true,
-    previousLocalHeight: localBusinessHeight,
+    previousLocalHeight: localScanHeight,
     releaseToHeight,
-    nextBlockSyncStart: releaseToHeight + 1,
+    nextBlockSyncStart: localScanHeight + 1,
     imported,
     meta,
   };
