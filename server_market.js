@@ -22685,6 +22685,10 @@ app.post('/api/wallet/create', async (req, res) => {
     if (!password) return fail(res, 'Password is required');
     if (wallet.walletExists()) wallet.resetWalletData();
     const result = await wallet.createWallet(password);
+    wallet.updateWalletSyncHints({
+      createdAtHeight: Number(getBhsTipSnapshot()?.tipHeight || 0),
+      source: 'wallet_create',
+    });
     req.session.walletPassword = password;
     await saveSessionAsync(req);
     setRuntimeWalletPassword(password);
@@ -22722,6 +22726,10 @@ app.post('/api/wallet/switch', async (req, res) => {
     if (mnemonic) {
       if (mode === 'create' && !exists) {
         result = await wallet.createWalletFromMnemonic(mnemonic, password);
+        wallet.updateWalletSyncHints({
+          createdAtHeight: Number(getBhsTipSnapshot()?.tipHeight || 0),
+          source: 'wallet_switch_create_from_mnemonic',
+        });
       } else if (mode === 'import') {
         if (exists) wallet.resetWalletData();
         result = await wallet.recoverWallet(mnemonic, password);
@@ -22731,6 +22739,10 @@ app.post('/api/wallet/switch', async (req, res) => {
     } else {
       if (exists) wallet.resetWalletData();
       result = await wallet.createWallet(password);
+      wallet.updateWalletSyncHints({
+        createdAtHeight: Number(getBhsTipSnapshot()?.tipHeight || 0),
+        source: 'wallet_switch_create',
+      });
     }
     req.session.walletPassword = password;
     await saveSessionAsync(req);
@@ -22780,6 +22792,10 @@ app.post('/api/wallet/recover', async (req, res) => {
     if (!password) return fail(res, 'Password is required');
     if (wallet.walletExists()) wallet.resetWalletData();
     const result = await wallet.recoverWallet(mnemonic, password);
+    wallet.updateWalletSyncHints({
+      createdAtHeight: Number(getBhsTipSnapshot()?.tipHeight || 0),
+      source: 'wallet_recover',
+    });
     req.session.walletPassword = password;
     await saveSessionAsync(req);
     setRuntimeWalletPassword(password);
@@ -23676,6 +23692,10 @@ app.post('/api/sync/reset-local', walletAuthRequired, async (req, res) => {
       resetWalletTxProjection: () => walletTxDomain.resetWalletTxProjection(),
       clearWalletLocalIndex: (reason) => wallet.clearWalletLocalIndex(reason || 'manual_sync_state_reset'),
       applyBootstrapIndexForBusinessSync: (state, applyOptions) => maybeApplyBootstrapIndexForBusinessSync(state, applyOptions),
+      resolveWalletScanStartHeight: ({ bootstrapHeight }) => wallet.getRecommendedWalletScanStartHeight({
+        fallbackHeight: Number(bootstrapHeight || FIXED_SYNC_BOOTSTRAP_HEIGHT),
+        safetyBlocks: 1,
+      }),
       getWalletKey,
     });
     return ok(res, fresh, req, {

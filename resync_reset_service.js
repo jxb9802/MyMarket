@@ -28,6 +28,7 @@ async function performCatalogResyncReset(options = {}) {
     resetWalletTxProjection,
     clearWalletLocalIndex,
     applyBootstrapIndexForBusinessSync,
+    resolveWalletScanStartHeight,
     getWalletKey,
   } = options;
 
@@ -139,6 +140,44 @@ async function performCatalogResyncReset(options = {}) {
     });
   }
 
+  const releaseToHeight = Math.max(0, Number(
+    bootstrapIndexResult?.releaseToHeight
+    || bootstrapIndexResult?.meta?.toHeight
+    || fresh.sync?.bootstrapIndex?.toHeight
+    || 0,
+  ));
+  const releaseResumeHeight = releaseToHeight > 0
+    ? Math.max(Number(bootstrapHeight || 0), releaseToHeight + 1)
+    : Number(bootstrapHeight || 0);
+  const walletScanStartHeight = typeof resolveWalletScanStartHeight === 'function'
+    ? Math.max(Number(bootstrapHeight || 0), Number(resolveWalletScanStartHeight({
+      bootstrapHeight,
+      releaseResumeHeight,
+      source: 'catalog_resync_reset',
+    }) || 0))
+    : Number(bootstrapHeight || 0);
+  const optimizedStartHeight = Math.max(
+    Number(bootstrapHeight || 0),
+    Math.min(releaseResumeHeight || Number(bootstrapHeight || 0), walletScanStartHeight || Number(bootstrapHeight || 0)),
+  );
+  const optimizedLocalHeight = Math.max(0, optimizedStartHeight - 1);
+  let optimizedScanStart = false;
+  if (optimizedLocalHeight > Math.max(0, Number(fresh.sync.fixedSyncLastHeight || 0))) {
+    fresh.sync.fixedSyncLastHeight = optimizedLocalHeight;
+    fresh.sync.localHeight = optimizedLocalHeight;
+    fresh.sync.independentLocalHeight = optimizedLocalHeight;
+    fresh.sync.receiptCommittedHeight = optimizedLocalHeight;
+    optimizedScanStart = true;
+  }
+  if (optimizedScanStart) {
+    await withTransientResetRetries('catalog_resync_save_optimized_scan_start_state', async () => {
+      await writeStateJsonSnapshot(fresh, { reason: 'catalog_resync_optimized_scan_start_saved' });
+    }, {
+      attempts: 4,
+      baseDelayMs: 200,
+    });
+  }
+
   await withTransientResetRetries('catalog_resync_persist_sync_state', async () => {
     await persistSyncStateNow(fresh.sync, {
       reason: 'catalog_resync_reset_saved',
@@ -199,6 +238,9 @@ async function performCatalogResyncReset(options = {}) {
     clearedStores: ['anchor_events', 'wallet_cache', 'wallet_tx_contexts'],
     preservedTipHeight,
     bootstrapIndex: bootstrapIndexResult,
+    releaseResumeHeight,
+    walletScanStartHeight,
+    optimizedStartHeight,
   });
 
   const command = await enqueueCommand('run_chain_sync', {
@@ -247,6 +289,7 @@ async function performLocalSyncStateReset(options = {}) {
     resetWalletTxProjection,
     clearWalletLocalIndex,
     applyBootstrapIndexForBusinessSync,
+    resolveWalletScanStartHeight,
     getWalletKey,
   } = options;
 
@@ -321,6 +364,44 @@ async function performLocalSyncStateReset(options = {}) {
     });
   }
 
+  const releaseToHeight = Math.max(0, Number(
+    bootstrapIndexResult?.releaseToHeight
+    || bootstrapIndexResult?.meta?.toHeight
+    || fresh.sync?.bootstrapIndex?.toHeight
+    || 0,
+  ));
+  const releaseResumeHeight = releaseToHeight > 0
+    ? Math.max(Number(bootstrapHeight || 0), releaseToHeight + 1)
+    : Number(bootstrapHeight || 0);
+  const walletScanStartHeight = typeof resolveWalletScanStartHeight === 'function'
+    ? Math.max(Number(bootstrapHeight || 0), Number(resolveWalletScanStartHeight({
+      bootstrapHeight,
+      releaseResumeHeight,
+      source: 'manual_sync_state_reset',
+    }) || 0))
+    : Number(bootstrapHeight || 0);
+  const optimizedStartHeight = Math.max(
+    Number(bootstrapHeight || 0),
+    Math.min(releaseResumeHeight || Number(bootstrapHeight || 0), walletScanStartHeight || Number(bootstrapHeight || 0)),
+  );
+  const optimizedLocalHeight = Math.max(0, optimizedStartHeight - 1);
+  let optimizedScanStart = false;
+  if (optimizedLocalHeight > Math.max(0, Number(fresh.sync.fixedSyncLastHeight || 0))) {
+    fresh.sync.fixedSyncLastHeight = optimizedLocalHeight;
+    fresh.sync.localHeight = optimizedLocalHeight;
+    fresh.sync.independentLocalHeight = optimizedLocalHeight;
+    fresh.sync.receiptCommittedHeight = optimizedLocalHeight;
+    optimizedScanStart = true;
+  }
+  if (optimizedScanStart) {
+    await withTransientResetRetries('manual_sync_state_reset_save_optimized_scan_start_state', async () => {
+      await writeStateJsonSnapshot(fresh, { reason: 'manual_sync_state_reset_optimized_scan_start_saved' });
+    }, {
+      attempts: 4,
+      baseDelayMs: 200,
+    });
+  }
+
   await withTransientResetRetries('manual_sync_state_reset_persist_sync_state', async () => {
     await persistSyncStateNow(fresh.sync, {
       reason: 'manual_sync_state_reset_saved',
@@ -369,6 +450,9 @@ async function performLocalSyncStateReset(options = {}) {
     clearedProjections: ['catalog', 'profile', 'local_state', 'orders', 'wallet'],
     clearedStores: ['anchor_events', 'wallet_cache', 'wallet_tx_contexts'],
     bootstrapIndex: bootstrapIndexResult,
+    releaseResumeHeight,
+    walletScanStartHeight,
+    optimizedStartHeight,
   });
 
   return {

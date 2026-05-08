@@ -351,6 +351,10 @@ function registerCatalogRoutes(app, deps = {}) {
       resetWalletTxProjection: () => walletTxDomain.resetWalletTxProjection(),
       clearWalletLocalIndex: (reason) => wallet.clearWalletLocalIndex(reason || 'catalog_resync_reset'),
       applyBootstrapIndexForBusinessSync: (state, applyOptions) => deps.maybeApplyBootstrapIndexForBusinessSync(state, applyOptions),
+      resolveWalletScanStartHeight: ({ bootstrapHeight }) => wallet.getRecommendedWalletScanStartHeight({
+        fallbackHeight: Number(bootstrapHeight || FIXED_SYNC_BOOTSTRAP_HEIGHT),
+        safetyBlocks: 1,
+      }),
       getWalletKey,
     });
     return ok(res, fresh, req, {

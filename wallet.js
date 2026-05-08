@@ -1866,6 +1866,88 @@ function saveWalletState(state) {
   clearSpvTxObservationCache();
 }
 
+function normalizeWalletSyncHeight(value) {
+  const height = Math.floor(Number(value || 0));
+  return Number.isFinite(height) && height > 0 ? height : 0;
+}
+
+function deriveEarliestLocalWalletTxHeight(index = null) {
+  const spv = index && typeof index === 'object' ? index : getSpvIndex();
+  const heights = [];
+  for (const tx of Object.values(spv?.txs || {})) {
+    const first = normalizeWalletSyncHeight(tx?.firstSeenHeight);
+    const last = normalizeWalletSyncHeight(tx?.lastSeenHeight);
+    if (first) heights.push(first);
+    else if (last) heights.push(last);
+  }
+  for (const utxo of Object.values(spv?.utxos || {})) {
+    const height = normalizeWalletSyncHeight(utxo?.firstSeenHeight || utxo?.height);
+    if (height) heights.push(height);
+  }
+  for (const spent of Object.values(spv?.spentOutpoints || {})) {
+    const height = normalizeWalletSyncHeight(spent?.firstSeenHeight || spent?.height);
+    if (height) heights.push(height);
+  }
+  return heights.length ? Math.min(...heights) : 0;
+}
+
+function updateWalletSyncHints(patch = {}) {
+  const state = getWalletState();
+  const now = new Date().toISOString();
+  const previous = state.syncHints && typeof state.syncHints === 'object' ? state.syncHints : {};
+  const next = {
+    ...previous,
+    updatedAt: now,
+    source: String(patch.source || previous.source || 'wallet_sync_hint'),
+  };
+  const createdAtHeight = normalizeWalletSyncHeight(patch.createdAtHeight);
+  const earliestTxHeight = normalizeWalletSyncHeight(patch.earliestTxHeight);
+  if (createdAtHeight) {
+    next.createdAtHeight = previous.createdAtHeight
+      ? Math.min(normalizeWalletSyncHeight(previous.createdAtHeight) || createdAtHeight, createdAtHeight)
+      : createdAtHeight;
+  }
+  if (earliestTxHeight) {
+    next.earliestTxHeight = previous.earliestTxHeight
+      ? Math.min(normalizeWalletSyncHeight(previous.earliestTxHeight) || earliestTxHeight, earliestTxHeight)
+      : earliestTxHeight;
+  }
+  if (patch.createdAt) next.createdAt = String(patch.createdAt || '');
+  state.syncHints = next;
+  saveWalletState(state);
+  return next;
+}
+
+function getWalletSyncHints() {
+  let state = null;
+  try {
+    state = getWalletState();
+  } catch (_) {
+    state = null;
+  }
+  const hints = state?.syncHints && typeof state.syncHints === 'object' ? state.syncHints : {};
+  const earliestLocalTxHeight = deriveEarliestLocalWalletTxHeight();
+  return {
+    ...hints,
+    createdAtHeight: normalizeWalletSyncHeight(hints.createdAtHeight),
+    earliestTxHeight: normalizeWalletSyncHeight(hints.earliestTxHeight),
+    earliestLocalTxHeight,
+  };
+}
+
+function getRecommendedWalletScanStartHeight(options = {}) {
+  const fallbackHeight = normalizeWalletSyncHeight(options.fallbackHeight);
+  const safetyBlocks = Math.max(0, Math.min(144, Math.floor(Number(options.safetyBlocks || 0))));
+  const hints = getWalletSyncHints();
+  const candidates = [
+    normalizeWalletSyncHeight(hints.earliestTxHeight),
+    normalizeWalletSyncHeight(hints.earliestLocalTxHeight),
+    normalizeWalletSyncHeight(hints.createdAtHeight),
+  ].filter((height) => height > 0);
+  if (!candidates.length) return fallbackHeight;
+  return Math.max(fallbackHeight, Math.max(1, Math.min(...candidates) - safetyBlocks));
+}
+
 function loadSyncStateLocalHeightFromSqlite() {
   try {
     const db = new DatabaseSync(MARKET_DB_FILE);
@@ -5453,6 +5535,7 @@ function upsertUtxoToSpvIndex(utxo) {
   index.utxos[key] = {
     ...utxo,
     ancestorDepth: Boolean(utxo.confirmed) ? 0 : Number(utxo.ancestorDepth || 0),
+    firstSeenHeight: normalizeWalletSyncHeight(utxo.firstSeenHeight || utxo.height),
     updatedAt: new Date().toISOString(),
     seenAt: index.utxos[key]?.seenAt || new Date().toISOString(),
   };
@@ -5465,6 +5548,8 @@ function upsertUtxoToSpvIndex(utxo) {
       netSat: 0,
       confirmed: Boolean(utxo.confirmed),
       ancestorDepth: Boolean(utxo.confirmed) ? 0 : Number(utxo.ancestorDepth || 0),
+      firstSeenHeight: normalizeWalletSyncHeight(utxo.firstSeenHeight || utxo.height),
+      lastSeenHeight: normalizeWalletSyncHeight(utxo.firstSeenHeight || utxo.height),
       firstSeenAt: new Date().toISOString(),
       lastSeenAt: new Date().toISOString(),
     };
@@ -5481,7 +5566,7 @@ function upsertUtxoToSpvIndex(utxo) {
   return true;
 }
 
-function recordTxidToSpvIndex(txid, { confirmed = true } = {}) {
+function recordTxidToSpvIndex(txid, { confirmed = true, firstSeenHeight = 0 } = {}) {
   const index = getSpvIndex();
   index.txs = index.txs || {};
   const prev = index.txs[txid] || {};
@@ -5494,8 +5579,8 @@ function recordTxidToSpvIndex(txid, { confirmed = true } = {}) {
     confirmed: Boolean(prev.confirmed || confirmed),
     ancestorDepth: Boolean(prev.confirmed || confirmed) ? 0 : Number(prev.ancestorDepth || 0),
     firstSeenAt: prev.firstSeenAt || now,
-    firstSeenHeight: Math.max(0, Number(prev.firstSeenHeight || 0)),
-    lastSeenHeight: Math.max(0, Number(prev.lastSeenHeight || 0)),
+    firstSeenHeight: Math.max(0, Number(prev.firstSeenHeight || firstSeenHeight || 0)),
+    lastSeenHeight: Math.max(0, Number(prev.lastSeenHeight || firstSeenHeight || 0)),
     lastSeenAt: now,
   };
   saveSpvIndex(index);
@@ -9661,6 +9746,9 @@ async function bootstrapSpvIndexFromWoc(state, options = {}) {
         address: addr.address,
         satoshis,
         confirmed: Number(u.height || 0) > 0,
+        firstSeenHeight: Number(u.height || 0),
+        height: Number(u.height || 0),
+        source: 'woc_bootstrap',
       });
     }
 
@@ -9716,6 +9804,12 @@ function initWalletState(firstAddress) {
     addresses: [firstAddress],
     lastReceiveIndex: firstAddress.index,
     addressCursor: firstAddress.index,
+    syncHints: {
+      createdAt: new Date().toISOString(),
+      createdAtHeight: 0,
+      earliestTxHeight: 0,
+      source: 'create_wallet',
+    },
     updatedAt: new Date().toISOString(),
   };
 }
@@ -9729,6 +9823,12 @@ function buildWalletStateFromHdPrivateKey(hdPrivateKey, addressCount = 1, pathBa
     addresses,
     lastReceiveIndex: 0,
     addressCursor: cap - 1,
+    syncHints: {
+      createdAt: new Date().toISOString(),
+      createdAtHeight: 0,
+      earliestTxHeight: 0,
+      source: 'wallet_from_mnemonic',
+    },
     updatedAt: new Date().toISOString(),
   };
 }
@@ -11841,6 +11941,7 @@ function getLocalIndexStats() {
     confirmedUtxoCount,
     unconfirmedUtxoCount,
     txCount: txs.length,
+    earliestTxHeight: deriveEarliestLocalWalletTxHeight(index),
     contextTxCount: getTxContextCount(),
     contextReadyCount,
     beefReadyUtxoCount,
@@ -12048,6 +12149,15 @@ async function recoverWallet(mnemonic, password) {
       // when normal WOC reads are disabled for day-to-day operation.
       allowDisabled: true,
     });
+    const earliestTxHeight = deriveEarliestLocalWalletTxHeight();
+    if (earliestTxHeight > 0) {
+      state.syncHints = {
+        ...(state.syncHints || {}),
+        earliestTxHeight,
+        source: 'wallet_recover_woc',
+        updatedAt: new Date().toISOString(),
+      };
+    }
     appendRecoverLog('wallet_confirmed_reconcile_skipped_policy', {
       source: 'wallet_recover_bootstrap_reconcile',
       reason: 'recover_uses_woc_utxo_truth',
@@ -13324,6 +13434,9 @@ module.exports = {
   applyConfirmedTxSummaryToSpvIndex,
   reconcileKnownConfirmedSpendersInSpvIndex,
   clearWalletLocalIndex,
+  updateWalletSyncHints,
+  getWalletSyncHints,
+  getRecommendedWalletScanStartHeight,
   rebuildWalletIndexFromLocalData,
   rebuildLocalIndexFromQueueRawtxs,
   syncLocalIndexFromRecentRawtxs,
