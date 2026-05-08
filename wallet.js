@@ -11435,9 +11435,6 @@ const MANUAL_WALLET_RECOVERY_SOURCES = new Set([
 ]);
 
 const MANUAL_WOC_WALLET_SOURCES = new Set([
-  'wallet_sync_api',
-  'wallet_sync_button',
-  'wallet_rescan_command',
   'wallet_switch_manual',
   'wallet_recover_bootstrap',
   'wallet_refresh_bootstrap',

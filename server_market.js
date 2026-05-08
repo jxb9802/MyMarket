@@ -10940,8 +10940,6 @@ async function runWalletRefreshCacheCommand(payload = {}) {
       clearLocalFirst: shouldClearLocalFirst,
       allowWocReconcile: payload?.allowWocReconcile === true
         || payload?.forceWocRebuild === true
-        || refreshSource === 'wallet_sync_api'
-        || refreshSource === 'wallet_sync_button'
         || refreshSource === 'wallet_switch_manual',
       shouldAbort,
     });
