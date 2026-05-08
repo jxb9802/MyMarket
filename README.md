@@ -19,9 +19,10 @@ Method 1: Run directly after downloading
    **http://127.0.0.1:8091**
 
 Method 2: Auto-download and run packages via npm
+
 1.Download automatically via npm:
   -**npm install @jxb9802/bsv-market**
-2.Running Package
+2.Running Package.
   -**cd node_modules\@jxb9802\bsv-market && npm start**
   
 ---
