@@ -22637,6 +22637,20 @@ app.get('/api/sync/status', async (req, res) => {
 
 app.get('/api/wallet/status', async (req, res) => {
   try {
+    let walletSyncHintUpgrade = null;
+    try {
+      if (wallet.walletExists()) {
+        walletSyncHintUpgrade = wallet.ensureWalletSyncHintsBackfilled({
+          source: 'wallet_status_auto_upgrade',
+        });
+      }
+    } catch (hintErr) {
+      walletSyncHintUpgrade = {
+        upgraded: false,
+        reason: 'wallet_sync_hint_upgrade_failed',
+        error: String(hintErr?.message || hintErr || ''),
+      };
+    }
     const fallbackSnapshot = typeof wallet.getWalletReadSnapshot === 'function'
       ? wallet.getWalletReadSnapshot({ includeHistory: false })
       : null;
@@ -22655,6 +22669,7 @@ app.get('/api/wallet/status', async (req, res) => {
       network: wallet.NETWORK,
       chain: wallet.API_NETWORK,
       walletState: walletState || defaultWalletIndexState(),
+      walletSyncHintUpgrade,
     });
   } catch (err) {
     return fail(res, err.message || 'Wallet status failed');
@@ -22881,6 +22896,19 @@ app.post('/api/auth/login', (req, res) => {
         source: 'api_auth_login',
         requestId: String(req?.requestId || ''),
       });
+      let walletSyncHintUpgrade = null;
+      try {
+        walletSyncHintUpgrade = wallet.ensureWalletSyncHintsBackfilled({
+          source: 'auth_login_auto_upgrade',
+        });
+      } catch (hintErr) {
+        walletSyncHintUpgrade = {
+          upgraded: false,
+          reason: 'wallet_sync_hint_upgrade_failed',
+          error: String(hintErr?.message || hintErr || ''),
+        };
+        appendMarketDebug('wallet_sync_hint_upgrade_failed', walletSyncHintUpgrade);
+      }
       enforceCoreMemoryOnly(req, null, 'auth_login_core_memory');
       const runtimeState = getRuntimeProjectionStateSnapshot(req);
       appendMarketDebug('auth_login_state_captured', {
@@ -22896,6 +22924,7 @@ app.post('/api/auth/login', (req, res) => {
       });
       const responsePayload = {
         success: true,
+        walletSyncHintUpgrade,
         bootstrap: await buildApiBootstrapLiteSnapshot(req, {
           fastMode: true,
           domains: ['sync', 'wallet', 'profile', 'order'],
