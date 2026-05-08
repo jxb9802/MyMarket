@@ -6631,6 +6631,27 @@ function renderOrderNotificationBadges() {
   });
 }
 
+function isOrderNotificationSuppressedForSync() {
+  const sync = state.sync || {};
+  const localHeight = Math.max(0, Number(sync.localHeight || 0), Number(sync.fixedSyncLastHeight || 0));
+  const highestBlock = Math.max(0, Number(sync.highestBlock || sync.networkHeight || sync?.bhs?.tipHeight || 0));
+  const lag = Math.max(0, Number(sync.lag ?? (highestBlock > 0 ? highestBlock - localHeight : 0)));
+  if (highestBlock > 0 && localHeight < highestBlock) return true;
+  if (lag > 0) return true;
+  const independentPhase = String(sync.independentPhase || "");
+  if (["round_running", "round_committing", "running"].includes(independentPhase)) return true;
+  const activeSyncNodes = Math.max(
+    0,
+    Number(sync.activeSyncNodes || 0),
+    Number(sync.syncWorkerNodes || 0),
+  );
+  if (activeSyncNodes > 0 && independentPhase && !["idle", "failed"].includes(independentPhase)) return true;
+  const lagPolicyMode = String(state.runtime?.lagPolicy?.mode || "").toUpperCase();
+  if (lagPolicyMode === "FULL_SYNC" || lagPolicyMode === "CATCHUP_SYNC") return true;
+  if (state.ui?.resyncFlow?.active === true) return true;
+  return false;
+}
+
 function orderNotificationStorageKey() {
   const scope = walletIdByMerchant(state.currentMerchantId || "") || String(state.currentMerchantId || "default");
   return `${ORDER_NOTIFICATION_SIGNATURE_STORAGE_KEY}.${encodeURIComponent(scope || "default")}`;
@@ -6686,11 +6707,13 @@ function trackOrderNotifications(nextOrders = [], options = {}) {
   let hasKnownBaseline = state.ui.orderNotifications.baselineReady === true || Object.keys(previous).length > 0;
   if (options.forceBaseline === true) hasKnownBaseline = false;
   if (options.notifyWithoutBaseline === true) hasKnownBaseline = true;
+  const suppressForSync = options.suppressForSync === true || isOrderNotificationSuppressedForSync();
   for (const order of rows) {
     const id = String(order?.id || order?.orderId || "").trim();
     if (!id) continue;
     const sig = orderChangeSignature(order);
     nextSignatures[id] = sig;
+    if (suppressForSync) continue;
     if (!hasKnownBaseline) continue;
     if (previous[id] === sig) continue;
     if (isLocalOrderNotificationSuppressed(order)) continue;
@@ -6709,6 +6732,7 @@ function trackOrderNotifications(nextOrders = [], options = {}) {
 function maybeOpenBuyerShipNotice(previousOrder = null, nextOrder = null) {
   const next = nextOrder && typeof nextOrder === "object" ? nextOrder : null;
   if (!next) return;
+  if (isOrderNotificationSuppressedForSync()) return;
   const currentWalletId = walletIdByMerchant(state.currentMerchantId || "");
   if (!currentWalletId || String(next?.buyerWalletId || "") !== currentWalletId) return;
   if (String(next?.status || "") !== "SHIPPED") return;
@@ -6726,6 +6750,7 @@ function maybeOpenBuyerShipNotice(previousOrder = null, nextOrder = null) {
 function maybeOpenOrderUpdateNotice(previousOrder = null, nextOrder = null, options = {}) {
   const next = nextOrder && typeof nextOrder === "object" ? nextOrder : null;
   if (!next || !isDocumentActive()) return;
+  if (isOrderNotificationSuppressedForSync()) return;
   if (state.ui?.orderNotifications?.baselineReady !== true && options.allowWithoutBaseline !== true) return;
   const id = String(next.id || next.orderId || "").trim();
   if (!id) return;
