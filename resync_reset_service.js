@@ -27,6 +27,7 @@ async function performCatalogResyncReset(options = {}) {
     resetWalletState,
     resetWalletTxProjection,
     clearWalletLocalIndex,
+    applyBootstrapIndexForBusinessSync,
     getWalletKey,
   } = options;
 
@@ -117,6 +118,27 @@ async function performCatalogResyncReset(options = {}) {
     baseDelayMs: 150,
   });
 
+  let bootstrapIndexResult = null;
+  await withTransientResetRetries('catalog_resync_apply_bootstrap_index', async () => {
+    if (typeof applyBootstrapIndexForBusinessSync === 'function') {
+      bootstrapIndexResult = await applyBootstrapIndexForBusinessSync(fresh, {
+        source: 'catalog_resync_reset',
+      });
+    }
+  }, {
+    attempts: 2,
+    baseDelayMs: 250,
+  });
+
+  if (bootstrapIndexResult?.applied === true) {
+    await withTransientResetRetries('catalog_resync_save_bootstrap_index_state', async () => {
+      await writeStateJsonSnapshot(fresh, { reason: 'catalog_resync_bootstrap_index_saved' });
+    }, {
+      attempts: 4,
+      baseDelayMs: 200,
+    });
+  }
+
   await withTransientResetRetries('catalog_resync_persist_sync_state', async () => {
     await persistSyncStateNow(fresh.sync, {
       reason: 'catalog_resync_reset_saved',
@@ -176,6 +198,7 @@ async function performCatalogResyncReset(options = {}) {
     clearedProjections: ['catalog', 'profile', 'local_state', 'orders', 'wallet'],
     clearedStores: ['anchor_events', 'wallet_cache', 'wallet_tx_contexts'],
     preservedTipHeight,
+    bootstrapIndex: bootstrapIndexResult,
   });
 
   const command = await enqueueCommand('run_chain_sync', {
@@ -195,6 +218,7 @@ async function performCatalogResyncReset(options = {}) {
     fresh,
     preservedTipHeight,
     command,
+    bootstrapIndexResult,
   };
 }
 
@@ -222,6 +246,7 @@ async function performLocalSyncStateReset(options = {}) {
     resetWalletState,
     resetWalletTxProjection,
     clearWalletLocalIndex,
+    applyBootstrapIndexForBusinessSync,
     getWalletKey,
   } = options;
 
@@ -275,6 +300,27 @@ async function performLocalSyncStateReset(options = {}) {
     baseDelayMs: 150,
   });
 
+  let bootstrapIndexResult = null;
+  await withTransientResetRetries('manual_sync_state_reset_apply_bootstrap_index', async () => {
+    if (typeof applyBootstrapIndexForBusinessSync === 'function') {
+      bootstrapIndexResult = await applyBootstrapIndexForBusinessSync(fresh, {
+        source: 'manual_sync_state_reset',
+      });
+    }
+  }, {
+    attempts: 2,
+    baseDelayMs: 250,
+  });
+
+  if (bootstrapIndexResult?.applied === true) {
+    await withTransientResetRetries('manual_sync_state_reset_save_bootstrap_index_state', async () => {
+      await writeStateJsonSnapshot(fresh, { reason: 'manual_sync_state_reset_bootstrap_index_saved' });
+    }, {
+      attempts: 4,
+      baseDelayMs: 200,
+    });
+  }
+
   await withTransientResetRetries('manual_sync_state_reset_persist_sync_state', async () => {
     await persistSyncStateNow(fresh.sync, {
       reason: 'manual_sync_state_reset_saved',
@@ -322,10 +368,12 @@ async function performLocalSyncStateReset(options = {}) {
     clearedArtifacts: ['state', 'anchors_global', 'chain_spool', 'chain_spool_state', 'p2p_sync_receipts', 'independent_sync_status', 'wallet_local_index'],
     clearedProjections: ['catalog', 'profile', 'local_state', 'orders', 'wallet'],
     clearedStores: ['anchor_events', 'wallet_cache', 'wallet_tx_contexts'],
+    bootstrapIndex: bootstrapIndexResult,
   });
 
   return {
     fresh,
+    bootstrapIndexResult,
   };
 }
 

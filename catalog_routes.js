@@ -322,7 +322,7 @@ function registerCatalogRoutes(app, deps = {}) {
         return '';
       }
     };
-    const { fresh, command } = await performCatalogResyncReset({
+    const { fresh, command, bootstrapIndexResult } = await performCatalogResyncReset({
       req,
       bootstrapHeight,
       resetEpoch,
@@ -350,6 +350,7 @@ function registerCatalogRoutes(app, deps = {}) {
       resetWalletState: (walletKey) => walletReadDomain.resetWalletState(walletKey),
       resetWalletTxProjection: () => walletTxDomain.resetWalletTxProjection(),
       clearWalletLocalIndex: (reason) => wallet.clearWalletLocalIndex(reason || 'catalog_resync_reset'),
+      applyBootstrapIndexForBusinessSync: (state, applyOptions) => deps.maybeApplyBootstrapIndexForBusinessSync(state, applyOptions),
       getWalletKey,
     });
     return ok(res, fresh, req, {
@@ -358,6 +359,7 @@ function registerCatalogRoutes(app, deps = {}) {
       commandType: command.commandType,
       resetEpoch,
       bootstrapHeight,
+      bootstrapIndex: bootstrapIndexResult,
       interruptedExistingSync: hadActiveSyncBeforeReset,
       interruptedCount,
       drainWaitMs: Math.max(0, Date.now() - drainStartedAtMs),

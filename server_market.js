@@ -23652,7 +23652,7 @@ app.post('/api/sync/reset-local', walletAuthRequired, async (req, res) => {
         return '';
       }
     };
-    const { fresh } = await performLocalSyncStateReset({
+    const { fresh, bootstrapIndexResult } = await performLocalSyncStateReset({
       req,
       bootstrapHeight,
       resetEpoch,
@@ -23675,12 +23675,14 @@ app.post('/api/sync/reset-local', walletAuthRequired, async (req, res) => {
       resetWalletState: (walletKey) => walletReadDomain.resetWalletState(walletKey),
       resetWalletTxProjection: () => walletTxDomain.resetWalletTxProjection(),
       clearWalletLocalIndex: (reason) => wallet.clearWalletLocalIndex(reason || 'manual_sync_state_reset'),
+      applyBootstrapIndexForBusinessSync: (state, applyOptions) => maybeApplyBootstrapIndexForBusinessSync(state, applyOptions),
       getWalletKey,
     });
     return ok(res, fresh, req, {
       resetLocalSyncState: true,
       bootstrapHeight,
       resetEpoch,
+      bootstrapIndex: bootstrapIndexResult,
       stopResult,
       warning: 'local sync state reset to initialized state',
     });
@@ -23785,6 +23787,7 @@ registerCatalogRoutes(app, {
   invalidateStateLiteSnapshotCache: (reason) => getPublicViewCacheService().invalidateStateLiteSnapshotCache(reason),
   setRuntimeSyncProgress,
   performCatalogResyncReset,
+  maybeApplyBootstrapIndexForBusinessSync,
   getEffectiveAnchorRows,
   normalizeEventPayload,
   marketDb,
