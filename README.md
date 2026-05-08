@@ -26,6 +26,8 @@ A decentralized P2P marketplace with on-chain escrow and built-in decentralized 
   
   3.npm start
   
+  4. Open your browser and visit:  
+   **http://127.0.0.1:8091**
 ---
 
 ### 2. Main Features
