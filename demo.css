@@ -135,25 +135,33 @@ h1 { margin: 6px 0; font-size: 34px; }
 .market-grid, .seller-grid { display: grid; grid-template-columns: 0.9fr 1.4fr; gap: 10px; margin: 10px 0; }
 .buyer-product-grid { display: grid; grid-template-columns: 248px minmax(0, 1fr); gap: 12px; align-items: start; }
 .buyer-browse-pane { margin-top: 10px; }
-.buyer-browse-tabs { margin-top: 10px; }
+.buyer-browse-tabs { margin-top: 6px; }
 .buyer-market-shell {
   padding: 0;
   overflow: hidden;
   background: #fff;
 }
 .buyer-market-hero {
-  padding: 14px 16px 12px;
+  display: grid;
+  grid-template-columns: auto minmax(280px, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px 8px;
   background: linear-gradient(180deg, #fff7f0, #ffffff);
   border-bottom: 1px solid #f3ddd0;
 }
 .buyer-market-tabs {
   margin-top: 0;
-  margin-bottom: 12px;
+  margin-bottom: 0;
+  flex-wrap: nowrap;
 }
 .buyer-market-tabs .chip {
   border-color: #ff5000;
+  border-radius: 8px;
   color: #c44700;
+  padding: 5px 10px;
   background: #fff6f0;
+  font-size: 13px;
 }
 .buyer-market-tabs .chip.active {
   background: linear-gradient(180deg, #ff7a00, #ff5000);
@@ -161,19 +169,19 @@ h1 { margin: 6px 0; font-size: 34px; }
 }
 .buyer-market-searchbar {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 120px;
+  grid-template-columns: minmax(0, 1fr) 104px;
   gap: 0;
-  border: 3px solid #ff5000;
-  border-radius: 12px;
+  border: 2px solid #ff5000;
+  border-radius: 9px;
   overflow: hidden;
   background: #fff;
 }
 .buyer-market-searchbar input {
-  min-height: 46px;
+  min-height: 34px;
   border: 0;
   border-radius: 0;
-  padding: 0 14px;
-  font-size: 15px;
+  padding: 0 12px;
+  font-size: 14px;
   background: #fff;
 }
 .buyer-market-searchbar button {
@@ -181,7 +189,7 @@ h1 { margin: 6px 0; font-size: 34px; }
   border-radius: 0;
   background: linear-gradient(180deg, #ff7a00, #ff5000);
   color: #fff;
-  font-size: 16px;
+  font-size: 14px;
 }
 .buyer-side-nav {
   min-width: 0;
@@ -2502,6 +2510,13 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 @media (max-width: 1024px) {
   .stats { grid-template-columns: repeat(2, 1fr); }
   .layout, .market-grid, .seller-grid, .chat-layout, .buyer-product-grid { grid-template-columns: 1fr; }
+  .buyer-market-hero {
+    grid-template-columns: 1fr;
+    gap: 7px;
+  }
+  .buyer-market-tabs {
+    overflow-x: auto;
+  }
   .drive-card { height: calc(100vh - 24px); max-height: calc(100vh - 24px); }
   .drive-layout { grid-template-columns: 1fr; }
   .drive-root-editor { grid-template-columns: 1fr; }

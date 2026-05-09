@@ -3307,6 +3307,13 @@ function formatApiErrorMessage(message = "", code = "", requestId = "") {
   return `${localized}${suffix}`;
 }
 
+function isFetchNetworkFailure(err) {
+  const name = String(err?.name || "");
+  const message = String(err?.message || err || "");
+  return name === "TypeError"
+    && /fetch failed|failed to fetch|networkerror|load failed/i.test(message);
+}
+
 function applyI18n() {
   Object.keys(localeState.messages || {}).forEach((id) => {
     const el = els[id];
@@ -3702,6 +3709,8 @@ async function api(path, options = {}) {
           ? tr("order_chain_timeout_retry", "Request timed out locally, but the transaction may still be broadcasting. Refresh the order list before retrying.")
           : tr("api_timeout_retry", "Request timed out, please try again later"),
       )
+      : isFetchNetworkFailure(err)
+        ? new Error(tr("api_service_unavailable", "本地节点服务未启动或网络不可达，请先启动节点后再重试"))
       : err;
     if (String(path).includes("/api/wallet/send") || String(path).includes("/api/wallet/sync")) {
       try {
@@ -5500,6 +5509,21 @@ function resolveChatPairDisplayName(walletId, currentDisplayName = "", patchDisp
   return incoming;
 }
 
+function shortChatWalletId(walletId = "") {
+  const id = String(walletId || "").trim();
+  const compact = id.replace(/^wallet-/, "").replace(/^m-/, "");
+  return (compact || id).slice(0, 8) || "";
+}
+
+function chatDisplayName(walletId = "", displayName = "") {
+  const id = String(walletId || "").trim();
+  const raw = String(displayName || "").trim();
+  if (raw && !isGeneratedChatName(raw, id)) return localizeDisplayName(raw);
+  const shortId = shortChatWalletId(id);
+  if (shortId) return trf("chat_unnamed_node_short", { id: shortId }, `未命名节点(${shortId})`);
+  return tr("chat_unnamed_node", "未命名节点");
+}
+
 function upsertChatPair(walletId, patch = {}) {
   const id = String(walletId || "").trim();
   if (!id) return null;
@@ -5803,9 +5827,9 @@ function currentChatThread() {
 
 function currentChatThreadTitle() {
   const thread = currentChatThread();
-  const name = String(thread?.displayName || "").trim();
-  if (name) return localizeDisplayName(name);
-  return String(state.chat.activeWalletId || "").trim() || tr("chat_window_title", "聊天窗口");
+  const walletId = String(state.chat.activeWalletId || thread?.walletId || "").trim();
+  if (walletId) return chatDisplayName(walletId, thread?.displayName);
+  return tr("chat_window_title", "聊天窗口");
 }
 
 function renderChatSurfaceTitle() {
@@ -6426,8 +6450,7 @@ function currentChatStatusLabel(status = null) {
   if (source.directConnected) return tr("chat_status_direct", "已连接");
   if (source.connectVerifying) return tr("chat_status_connect_verifying", "正在确认连接状态...");
   if (source.connecting) {
-    const countdownSec = Math.max(0, Number(source.connectCountdownSec || 0));
-    return trf("chat_status_connecting_countdown", { seconds: countdownSec }, `连接中 (${countdownSec}s)`);
+    return tr("chat_status_connecting", "连接中...");
   }
   if (source.connectFailed) return tr("chat_status_connect_failed", "连接失败");
   if (String(source.presenceStatus || "").toLowerCase() === "offline") return tr("chat_status_offline", "离线拒聊");
@@ -6454,15 +6477,16 @@ function renderChatStatusBar(status = null) {
   const thread = currentChatThread();
   if (els.btnChatP2pConnect) {
     const activeWalletId = String(state.chat.activeWalletId || "").trim();
+    const showP2pConnect = String(state.chat.mode || "global") === "order" && Boolean(activeWalletId);
     const source = applyChatConnectStateToThread(status && typeof status === "object" ? {
       ...(thread || {}),
       ...status,
       walletId: activeWalletId,
     } : thread);
     const direct = source?.directConnected === true;
-    els.btnChatP2pConnect.classList.toggle("hidden", !activeWalletId);
+    els.btnChatP2pConnect.classList.toggle("hidden", !showP2pConnect);
     els.btnChatP2pConnect.classList.toggle("connected", direct);
-    els.btnChatP2pConnect.disabled = !activeWalletId;
+    els.btnChatP2pConnect.disabled = !showP2pConnect;
     els.btnChatP2pConnect.textContent = direct ? tr("chat_p2p_disconnect_btn", "断开") : tr("chat_p2p_connect_btn", "P2P");
     els.btnChatP2pConnect.title = direct
       ? tr("chat_p2p_disconnect_title", "断开当前 P2P 直连状态")
@@ -6873,13 +6897,12 @@ function maybeOpenBuyerShipNotice(previousOrder = null, nextOrder = null) {
 
 function maybeOpenOrderUpdateNotice(previousOrder = null, nextOrder = null, options = {}) {
   const next = nextOrder && typeof nextOrder === "object" ? nextOrder : null;
-  if (!next || !isDocumentActive()) return;
+  if (!next) return;
   if (isOrderNotificationSuppressedForSync()) return;
   if (state.ui?.orderNotifications?.baselineReady !== true && options.allowWithoutBaseline !== true) return;
   const id = String(next.id || next.orderId || "").trim();
   if (!id) return;
   if (state.ui.orderDetail?.orderId === id) return;
-  if (isLocalOrderNotificationSuppressed(next)) return;
   const roles = orderRolesForNotification(next);
   if (!roles.length) return;
   const prev = previousOrder && typeof previousOrder === "object" ? previousOrder : null;
@@ -6890,6 +6913,8 @@ function maybeOpenOrderUpdateNotice(previousOrder = null, nextOrder = null, opti
   const txChanged = prev
     ? orderChangeSignature(prev) !== nextSignature
     : Boolean(previousSignature && previousSignature !== nextSignature);
+  if (isHistoricalOrderStatus(next.status) && (isNew || !statusChanged)) return;
+  if (isLocalOrderNotificationSuppressed(next) && !statusChanged) return;
   if (!isNew && !statusChanged && !txChanged) return;
   const role = roles.includes(state.activeRole) ? state.activeRole : roles[0];
   openOrderDetailModal(id, role);
@@ -7815,8 +7840,9 @@ function sellerCancelRequestText(order = null) {
 
 function sellerOrderActionButtonsHtml(order) {
   const pendingConfirmation = orderPendingConfirmation(order);
+  const sellerCancelRequested = Boolean(String(order?.chain?.sellerCancelRequestTxid || "").trim());
   const acceptable = order.status === "PLACED" && !pendingConfirmation;
-  const cancelable = order.status === "PLACED";
+  const cancelable = order.status === "PLACED" && !sellerCancelRequested;
   const shipWait = orderShipWaitState(order);
   const shippable = order.status === "LOCKED" && !shipWait.waiting;
   const acceptReturnable = order.status === "REFUND_REQUESTED";
@@ -7833,6 +7859,8 @@ function sellerOrderActionButtonsHtml(order) {
   }
   if (cancelable) {
     buttons.push(`<button data-seller-order-action="sellerCancel" data-order-id="${safeOrderId}" title="${escapeHtml(sellerCancelRequestText(order))}">${escapeHtml(tr("seller_order_action_cancel", "取消订单"))}</button>`);
+  } else if (sellerCancelRequested && order.status === "PLACED") {
+    buttons.push(`<button disabled title="${escapeHtml(tr("seller_order_cancel_pending_tip", "卖家取消请求已广播，等待买家钱包完成退款取消。"))}">${escapeHtml(tr("seller_order_cancel_pending", "取消处理中"))}</button>`);
   }
   if (order.status === "LOCKED") {
     const shipTitle = shipWait.waiting
@@ -8269,7 +8297,7 @@ function renderChatUserRow(thread) {
     : tr("chat_p2p_check_title", "检查非 HTTP P2P 直连状态");
   const p2pAction = direct ? `data-chat-disconnect="${escapeHtml(walletId)}"` : `data-chat-connect-test="${escapeHtml(walletId)}"`;
   const p2pClass = direct ? "chat-user-test connected" : "chat-user-test";
-  const displayName = localizeDisplayName(uiThread?.displayName) || walletId || "";
+  const displayName = chatDisplayName(walletId, uiThread?.displayName);
   return `<div class="chat-user-row" data-chat-user-row="${escapeHtml(walletId)}" data-chat-user-context="${escapeHtml(walletId)}"><button class="chat-user${state.chat.activeWalletId === walletId ? " active" : ""}" data-chat-wallet="${escapeHtml(walletId)}">${unreadDot}<span>${escapeHtml(displayName)}</span><span class="chat-user-meta">${escapeHtml(statusText)}</span></button><button class="${p2pClass}" type="button" title="${escapeHtml(p2pTitle)}" ${p2pAction}>${escapeHtml(p2pLabel)}</button></div>`;
 }
 
@@ -8344,7 +8372,10 @@ function paintChatMessages(messages = [], options = {}) {
       failed: tr("chat_status_failed", "Failed"),
     };
     const statusText = statusMap[String(m.status || "")] || String(m.status || "");
-    const who = m.direction === "out" ? (localizeDisplayName(state.profile.name) || tr("chat_self_label", "我")) : (localizeDisplayName(currentChatThread()?.displayName) || tr("chat_other_party", "对方"));
+    const peerThread = currentChatThread();
+    const who = m.direction === "out"
+      ? (localizeDisplayName(state.profile.name) || tr("chat_self_label", "我"))
+      : (chatDisplayName(peerThread?.walletId || state.chat.activeWalletId, peerThread?.displayName) || tr("chat_other_party", "对方"));
     const sideClass = m.direction === "out" ? " chat-out" : " chat-in";
     const visibleMeta = m.direction === "out"
       ? (state.chat.messageMetaVisible?.self || {})
@@ -8952,31 +8983,36 @@ async function triggerChatConnectTest(walletId) {
   const targetWalletId = String(walletId || state.chat.activeWalletId || "").trim();
   if (!targetWalletId) return toast(tr("chat_select_contact_first", "请先选择一个联系人"));
   beginChatConnectCountdown(targetWalletId);
-  const result = await api("/api/chat/connect/test", {
-    method: "POST",
-    silent: true,
-    timeoutMs: 80000,
-    body: { walletId: targetWalletId },
-  });
-  const status = result && typeof result === "object" ? result : await refreshChatDirectStatusForWallet(targetWalletId, { render: true, silent: true });
-  if (status?.directConnected === true || result?.directConnected === true) {
-    removeChatConnectState(targetWalletId);
-    upsertChatPair(targetWalletId, {
-      __forceConnectionStatus: true,
-      directConnected: true,
-      connecting: false,
-      presenceStatus: String(status?.presenceStatus || "chatable"),
-      statusLabel: String(status?.statusLabel || tr("chat_status_direct", "已连接")),
-      activeSessionId: String(status?.activeSessionId || ""),
+  try {
+    const result = await api("/api/chat/connect/test", {
+      method: "POST",
+      silent: true,
+      timeoutMs: 80000,
+      body: { walletId: targetWalletId },
     });
-    rebuildChatPairCollections();
-    updateChatUserRow(targetWalletId) || renderChatUsers();
-    renderChatStatusBar(status);
-    toast(tr("chat_p2p_connected", "P2P 直连已连接"));
-    return;
+    const status = result && typeof result === "object" ? result : await refreshChatDirectStatusForWallet(targetWalletId, { render: true, silent: true });
+    if (status?.directConnected === true || result?.directConnected === true) {
+      removeChatConnectState(targetWalletId);
+      upsertChatPair(targetWalletId, {
+        __forceConnectionStatus: true,
+        directConnected: true,
+        connecting: false,
+        presenceStatus: String(status?.presenceStatus || "chatable"),
+        statusLabel: String(status?.statusLabel || tr("chat_status_direct", "已连接")),
+        activeSessionId: String(status?.activeSessionId || ""),
+      });
+      rebuildChatPairCollections();
+      updateChatUserRow(targetWalletId) || renderChatUsers();
+      renderChatStatusBar(status);
+      toast(tr("chat_p2p_connected", "P2P 直连已连接"));
+      return;
+    }
+    failChatConnectCountdown(targetWalletId, tr("chat_status_connect_failed", "连接失败"));
+    toast(tr("chat_status_connect_failed", "连接失败"));
+  } catch (err) {
+    failChatConnectCountdown(targetWalletId, tr("chat_status_connect_failed", "连接失败"));
+    throw err;
   }
-  failChatConnectCountdown(targetWalletId, tr("chat_status_connect_failed", "连接失败"));
-  toast(tr("chat_status_connect_failed", "连接失败"));
 }
 
 async function triggerChatDisconnect(walletId) {
@@ -9053,7 +9089,7 @@ function renderChatFriendConfirmList() {
   els.chatFriendConfirmList.innerHTML = rows.map((row) => {
     const walletId = String(row?.walletId || "").trim();
     const status = String(row?.friendStatus || "none");
-    const name = localizeDisplayName(row?.displayName) || walletId || "";
+    const name = chatDisplayName(walletId, row?.displayName);
     const statusText = row?.isFriend === true
       ? tr("chat_friend_status_friend", "已是好友")
       : currentChatStatusLabel(row);

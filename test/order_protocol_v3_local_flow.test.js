@@ -154,6 +154,86 @@ test('v3 local order can be generated and buyer cancel is disabled', { concurren
   });
 });
 
+test('order place funding excludes already locked order outpoints', { concurrency: false }, async (t) => {
+  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'bsv-market-order-place-exclude-'));
+  const dataDir = path.join(tmpRoot, 'data');
+  const logDir = path.join(tmpRoot, 'log');
+  fs.mkdirSync(dataDir, { recursive: true });
+  fs.mkdirSync(logDir, { recursive: true });
+
+  const previousEnv = {
+    BSV_MARKET_DATA_DIR: process.env.BSV_MARKET_DATA_DIR,
+    BSV_MARKET_LOG_DIR: process.env.BSV_MARKET_LOG_DIR,
+    BSV_MARKET_DISABLE_SPV_LISTENER: process.env.BSV_MARKET_DISABLE_SPV_LISTENER,
+  };
+  process.env.BSV_MARKET_DATA_DIR = dataDir;
+  process.env.BSV_MARKET_LOG_DIR = logDir;
+  process.env.BSV_MARKET_DISABLE_SPV_LISTENER = '1';
+
+  const wallet = loadFresh('../wallet');
+  const bsvRaw = require('bsv');
+  const bsv = bsvRaw && bsvRaw.default ? bsvRaw.default : bsvRaw;
+
+  t.after(() => {
+    Object.entries(previousEnv).forEach(([key, value]) => {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    });
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  });
+
+  const { mnemonic, firstAddress } = await wallet.createWallet('order-place-exclude-password');
+  const addressScriptHex = bsv.Script.buildPublicKeyHashOut(firstAddress).toHex();
+  const lockedTxid = 'a'.repeat(64);
+  const normalTxid = 'b'.repeat(64);
+  fs.writeFileSync(path.join(dataDir, 'spv_index.json'), JSON.stringify({
+    version: 1,
+    utxos: {
+      [`${lockedTxid}:0`]: {
+        txId: lockedTxid,
+        vout: 0,
+        address: firstAddress,
+        script: addressScriptHex,
+        satoshis: 120000,
+        confirmed: true,
+        ancestorDepth: 0,
+      },
+      [`${normalTxid}:0`]: {
+        txId: normalTxid,
+        vout: 0,
+        address: firstAddress,
+        script: addressScriptHex,
+        satoshis: 50000,
+        confirmed: true,
+        ancestorDepth: 0,
+      },
+    },
+    ownedOutpoints: {
+      [`${lockedTxid}:0`]: 120000,
+      [`${normalTxid}:0`]: 50000,
+    },
+    spentOutpoints: {},
+    txs: {
+      [lockedTxid]: { txid: lockedTxid, receivedSat: 120000, spentSat: 0, netSat: 120000, confirmed: true, applied: true },
+      [normalTxid]: { txid: normalTxid, receivedSat: 50000, spentSat: 0, netSat: 50000, confirmed: true, applied: true },
+    },
+    updatedAt: new Date().toISOString(),
+  }, null, 2));
+
+  const sellerMnemonic = wallet.generateMnemonic();
+  const placeTx = wallet.buildOrderPlaceLockTx({
+    mnemonic,
+    priceSats: 20000,
+    sellerChatPubKey: wallet.deriveChatPublicKeyFromMnemonic(sellerMnemonic),
+    timeoutAt: Math.floor(Date.now() / 1000) + 3600,
+    anchorText: JSON.stringify({ t: 'order_place' }),
+    excludeOutpoints: [`${lockedTxid}:0`],
+  });
+  const tx = new bsv.Transaction(placeTx.rawtx);
+  assert.equal(tx.inputs.some((input) => input.prevTxId.toString('hex') === lockedTxid && Number(input.outputIndex) === 0), false);
+  assert.equal(tx.inputs.some((input) => input.prevTxId.toString('hex') === normalTxid && Number(input.outputIndex) === 0), true);
+});
+
 test('seller accept tx splits a dedicated settlement fee UTXO', { concurrency: false }, async (t) => {
   const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'bsv-market-order-v3-accept-fee-'));
   const dataDir = path.join(tmpRoot, 'data');
@@ -218,7 +298,6 @@ test('seller accept tx splits a dedicated settlement fee UTXO', { concurrency: f
 
   const buyerMnemonic = wallet.generateMnemonic();
   const buyerChatPubKey = wallet.deriveChatPublicKeyFromMnemonic(buyerMnemonic);
-  const buyerNotifyAddress = firstAddress;
   const sellerChatPubKey = wallet.deriveChatPublicKeyFromMnemonic(mnemonic);
   const priceSats = 10000;
   const acceptTx = wallet.buildOrderSellerLockTx({
@@ -228,7 +307,7 @@ test('seller accept tx splits a dedicated settlement fee UTXO', { concurrency: f
     buyerChatPubKey,
     sellerChatPubKey,
     anchorText: JSON.stringify({ t: 'order_accept', p: { v: 3, pt: '1'.repeat(64) } }),
-    notifyAddresses: [buyerNotifyAddress],
+    notifyAddresses: [],
   });
   const tx = new bsv.Transaction(acceptTx.rawtx);
   assert.equal(acceptTx.sellerLockVout, 0);
@@ -246,9 +325,9 @@ test('seller accept tx splits a dedicated settlement fee UTXO', { concurrency: f
   assert.ok(acceptTx.settlementFeeReserveSats >= wallet.estimateOrderSettlementFeeReserveSat({ mode: 'completed', includeSellerSource: true }));
   assert.ok(acceptTx.shipAnchorFeeReserveSats >= wallet.estimateAnchorDataFeeReserveSat({
     payloadBytes: Buffer.byteLength(JSON.stringify({ t: 'order_accept', p: { v: 3, pt: '1'.repeat(64) } }), 'utf8'),
-    notifyOutputCount: 1,
+    notifyOutputCount: 0,
   }));
-  assert.equal(String(tx.outputs[3].script.toAddress(wallet.NETWORK)), buyerNotifyAddress);
+  assert.equal(tx.outputs.length, 4);
 
   wallet.commitWalletLocalMutation(acceptTx.rawtx, {
     source: 'test_accept_fee_split',

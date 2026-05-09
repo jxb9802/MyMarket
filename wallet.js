@@ -6,6 +6,7 @@ const axios = require('axios');
 const net = require('net');
 const { EventEmitter } = require('events');
 const { DatabaseSync } = require('node:sqlite');
+const broadcastService = require('./services/broadcast_service');
 function loadLocalEnvFile() {
   if (process.platform !== 'win32') return;
   const envPath = path.join(__dirname, '.env.market');
@@ -351,10 +352,13 @@ function computeNodeRoleScores(row = {}) {
   const lastListenerTxAt = row?.lastListenerTxAt ? new Date(row.lastListenerTxAt).getTime() : 0;
   const listenerRecentBonus = lastListenerTxAt > 0 && (Date.now() - lastListenerTxAt) <= 60 * 60 * 1000 ? 12 : 0;
   const listenerRelayBonus = Math.min(30, listenerTxHitCount * 8) + Math.min(12, Math.floor(listenerTxSeenCount / 25));
+  const dataRelayPenalty = broadcastService.isDataRelayBad(row)
+    ? Math.min(80, 25 + (Number(row?.dataRelayRejectCount || 0) * 10))
+    : 0;
   return {
     listenerScore: baseScore + Math.min(12, successCount) + listenerRelayBonus + listenerRecentBonus - (consecutiveFail * 2),
     syncScore: baseScore + probeBonus + Math.min(10, successCount) - failCount,
-    sendScore: baseScore + broadcastBonus + (broadcastSuccessCount * 2) - (broadcastFailCount * 3),
+    sendScore: baseScore + broadcastBonus + (broadcastSuccessCount * 2) - (broadcastFailCount * 3) - dataRelayPenalty,
   };
 }
 
@@ -759,9 +763,7 @@ function normalizeBroadcastMonitorRecord(row = {}) {
     rawtx: String(row?.rawtx || '').trim(),
     status: String(row?.status || 'broadcast_pending_confirm').trim(),
     source: String(row?.source || '').trim(),
-    nodes: Array.from(new Set((Array.isArray(row?.nodes) ? row.nodes : [])
-      .map((node) => String(node || '').trim())
-      .filter(Boolean))).slice(0, BROADCAST_PENDING_MIN_NODES),
+    nodes: broadcastService.uniqueNodes(row?.nodes, BROADCAST_PENDING_MIN_NODES),
     createdAt: String(row?.createdAt || new Date().toISOString()),
     updatedAt: String(row?.updatedAt || row?.createdAt || new Date().toISOString()),
     lastProbeAt: String(row?.lastProbeAt || ''),
@@ -772,6 +774,7 @@ function normalizeBroadcastMonitorRecord(row = {}) {
     failureReason: String(row?.failureReason || ''),
     retryCount: Math.max(0, Number(row?.retryCount || 0)),
     probeCount: Math.max(0, Number(row?.probeCount || 0)),
+    pendingReason: String(row?.pendingReason || ''),
   };
 }
 
@@ -822,7 +825,7 @@ function scheduleBroadcastMonitor(delayMs = BROADCAST_MONITOR_PROBE_MS) {
   broadcastMonitorTimer.unref?.();
 }
 
-function upsertPendingBroadcastMonitor({ txid, rawtx, nodes = [], source = '' } = {}) {
+function upsertPendingBroadcastMonitor({ txid, rawtx, nodes = [], source = '', pendingReason = '' } = {}) {
   const safeTxid = String(txid || '').trim().toLowerCase();
   const safeRawtx = String(rawtx || '').trim();
   if (!/^[0-9a-f]{64}$/i.test(safeTxid) || !safeRawtx) return null;
@@ -841,6 +844,7 @@ function upsertPendingBroadcastMonitor({ txid, rawtx, nodes = [], source = '' } 
     updatedAt: now,
     nextProbeAt: new Date(Date.now() + BROADCAST_MONITOR_PROBE_MS).toISOString(),
     failureReason: '',
+    pendingReason: String(pendingReason || ''),
     failedAt: '',
   });
   if (existingIndex >= 0) state.records[existingIndex] = next;
@@ -2098,6 +2102,9 @@ function newNodeRow(endpoint, source = 'seed') {
     lastProbeOkAt: null,
     lastProbeLatencyMs: 0,
     lastProbeError: '',
+    dataRelayRejectCount: 0,
+    lastDataRelayRejectAt: null,
+    dataRelayBadUntil: 0,
     banUntil: 0,
     source,
     updatedAt: nowIso(),
@@ -2128,6 +2135,10 @@ function sortNodeRows(a, b) {
 }
 
 function sortBroadcastNodeRows(a, b) {
+  const now = Date.now();
+  const aDataBad = broadcastService.isDataRelayBad(a, now) ? 1 : 0;
+  const bDataBad = broadcastService.isDataRelayBad(b, now) ? 1 : 0;
+  if (aDataBad !== bDataBad) return aDataBad - bDataBad;
   const abs = Number(a.broadcastSuccessCount || 0);
   const bbs = Number(b.broadcastSuccessCount || 0);
   if (abs !== bbs) return bbs - abs;
@@ -2194,6 +2205,9 @@ function normalizeNodeState(state) {
       lastProbeOkAt: item?.lastProbeOkAt || prev.lastProbeOkAt || null,
       lastProbeLatencyMs: Math.max(0, Number(item?.lastProbeLatencyMs || prev.lastProbeLatencyMs || 0)),
       lastProbeError: String(item?.lastProbeError || prev.lastProbeError || ''),
+      dataRelayRejectCount: Number(item?.dataRelayRejectCount || prev.dataRelayRejectCount || 0),
+      lastDataRelayRejectAt: item?.lastDataRelayRejectAt || prev.lastDataRelayRejectAt || null,
+      dataRelayBadUntil: Number(item?.dataRelayBadUntil || prev.dataRelayBadUntil || 0),
       updatedAt: item?.updatedAt || prev.updatedAt || nowIso(),
     });
   }
@@ -2481,6 +2495,7 @@ function recordSpvNodeFailure(endpoint, reason = 'connect_failed') {
 function recordSpvBroadcastResult(endpoint, { ok = false, latencyMs = 0, reason = '' } = {}) {
   const row = updateNodeRow(endpoint, (next) => {
     const now = nowIso();
+    const reasonText = String(reason || '');
     next.lastBroadcastAt = now;
     if (ok) {
       next.broadcastSuccessCount = Number(next.broadcastSuccessCount || 0) + 1;
@@ -2494,11 +2509,11 @@ function recordSpvBroadcastResult(endpoint, { ok = false, latencyMs = 0, reason 
       next.banUntil = 0;
       next.lastSuccessAt = now;
     } else {
-      next.broadcastFailCount = Number(next.broadcastFailCount || 0) + 1;
-      next.lastFailAt = now;
-      next.consecutiveFail = Number(next.consecutiveFail || 0) + 1;
-      next.score = Math.max(-100, Number(next.score || 0) - 3);
-      if (isTransientBroadcastNodeFailure(reason)) {
+      Object.assign(next, broadcastService.applyBroadcastFailureToNode(next, {
+        reason: reasonText,
+        nowMs: Date.now(),
+      }));
+      if (isTransientBroadcastNodeFailure(reasonText)) {
         const banMs = Math.min(SPV_NODE_MAX_BAN_MS, SPV_NODE_BASE_BAN_MS);
         next.banUntil = Math.max(Number(next.banUntil || 0), Date.now() + banMs);
       } else if (next.consecutiveFail >= 4) {
@@ -3185,6 +3200,20 @@ function getTxContextSpentOutpoints() {
   const spent = new Set(getTxContextSpentOutpointMap().keys());
   txContextSpentOutpointCache.spent = spent;
   return spent;
+}
+
+function findKnownSpendersForOutpoints(outpoints = []) {
+  const requested = Array.from(new Set((Array.isArray(outpoints) ? outpoints : [outpoints])
+    .map((outpoint) => String(outpoint || '').trim().toLowerCase())
+    .filter((outpoint) => /^[0-9a-f]{64}:\d+$/i.test(outpoint))));
+  if (!requested.length) return [];
+  const spenderMap = getTxContextSpentOutpointMap();
+  return requested
+    .map((outpoint) => ({
+      outpoint,
+      spentBy: String(spenderMap.get(outpoint) || '').trim().toLowerCase(),
+    }))
+    .filter((row) => /^[0-9a-f]{64}$/i.test(row.spentBy));
 }
 
 function markKnownConfirmedSpenderForOutpoint(index, outpoint, utxo = {}, options = {}) {
@@ -5071,11 +5100,17 @@ function applyConfirmedTxSummaryToSpvIndex(summary = {}, options = {}) {
   }
 
   const prevRow = prev || {};
+  const canonicalReceivedSat = extractedFacts
+    ? Math.max(receivedSat, Number(extractedFacts.walletOutputSat || 0))
+    : receivedSat;
+  const canonicalSpentSat = extractedFacts
+    ? Math.max(spentSat, Number(extractedFacts.walletInputSat || 0))
+    : spentSat;
   index.txs[txid] = {
     txid,
-    receivedSat,
-    spentSat,
-    netSat: receivedSat - spentSat,
+    receivedSat: canonicalReceivedSat,
+    spentSat: canonicalSpentSat,
+    netSat: canonicalReceivedSat - canonicalSpentSat,
     confirmed: Boolean(prevRow.confirmed || confirmed),
     ancestorDepth: Boolean(prevRow.confirmed || confirmed) ? 0 : (maxInputAncestorDepth + 1),
     firstSeenAt: prevRow.firstSeenAt || now,
@@ -5517,11 +5552,17 @@ function applyTxToSpvIndex(txLike, { confirmed = false, trackOutputs = true, fir
   }
 
   const prevRow = prev || {};
+  const canonicalReceivedSat = extractedFacts
+    ? Math.max(receivedSat, Number(extractedFacts.walletOutputSat || 0))
+    : receivedSat;
+  const canonicalSpentSat = extractedFacts
+    ? Math.max(spentSat, Number(extractedFacts.walletInputSat || 0))
+    : spentSat;
   index.txs[txid] = {
     txid,
-    receivedSat,
-    spentSat,
-    netSat: receivedSat - spentSat,
+    receivedSat: canonicalReceivedSat,
+    spentSat: canonicalSpentSat,
+    netSat: canonicalReceivedSat - canonicalSpentSat,
     confirmed: Boolean(prevRow.confirmed || confirmed),
     ancestorDepth: Boolean(prevRow.confirmed || confirmed) ? 0 : (maxInputAncestorDepth + 1),
     firstSeenAt: prevRow.firstSeenAt || now,
@@ -5536,9 +5577,9 @@ function applyTxToSpvIndex(txLike, { confirmed = false, trackOutputs = true, fir
   appendSendLog('tx_apply_accounted', {
     txid,
     confirmed: Boolean(confirmed),
-    receivedSat,
-    spentSat,
-    netSat: receivedSat - spentSat,
+    receivedSat: canonicalReceivedSat,
+    spentSat: canonicalSpentSat,
+    netSat: canonicalReceivedSat - canonicalSpentSat,
   });
 
   saveSpvIndex(index);
@@ -5547,9 +5588,9 @@ function applyTxToSpvIndex(txLike, { confirmed = false, trackOutputs = true, fir
     operation: 'tx_apply_accounted',
     txid,
     confirmed: Boolean(confirmed),
-    receivedSat,
-    spentSat,
-    netSat: receivedSat - spentSat,
+    receivedSat: canonicalReceivedSat,
+    spentSat: canonicalSpentSat,
+    netSat: canonicalReceivedSat - canonicalSpentSat,
   });
   if (confirmed) markTxContextConfirmed(txid);
   rememberSpvTxObservation(txid, {
@@ -5689,7 +5730,10 @@ function applyConfirmedWalletRawtx(rawtx, options = {}) {
   if (!safeRawtx) return false;
   const info = inspectRawTx(safeRawtx);
   if (!info?.txid) return false;
-  if (options.allowCreateFromRawtx !== true && !isTxSeenInSpvIndex(info.txid)) {
+  const allowCreateFromRawtx = options.allowCreateFromRawtx === true
+    || transactionTouchesWallet(safeRawtx)
+    || transactionMentionsCurrentWalletId(safeRawtx);
+  if (allowCreateFromRawtx !== true && !isTxSeenInSpvIndex(info.txid)) {
     markTxContextConfirmed(info.txid);
     appendSendLog('wallet_confirm_rawtx_create_skipped', {
       txid: info.txid,
@@ -7890,9 +7934,10 @@ async function broadcastRawTxViaConnectedPeer(rawtx, node, { broadcastTimeoutMs 
   };
 }
 
-function getPreferredBroadcastNodes() {
+function getPreferredBroadcastNodes(options = {}) {
   const state = loadSpvNodeState();
   const now = Date.now();
+  const dataTx = options?.dataTx === true;
   const rowsByEndpoint = new Map((state.nodes || []).map((n) => [n.endpoint, n]));
   const syncActiveSet = new Set(
     Array.from(walletNodeManagerRuntime.activeSyncLeases.values())
@@ -7913,6 +7958,7 @@ function getPreferredBroadcastNodes() {
     .filter((n) => !connectedSet.has(n.endpoint))
     .filter((n) => !syncActiveSet.has(String(n.endpoint || '').trim()))
     .filter((n) => !Number(n.banUntil || 0) || Number(n.banUntil || 0) <= now)
+    .filter((n) => !dataTx || !broadcastService.isDataRelayBad(n, now))
     .sort(sortBroadcastNodeRows);
   let fallback = fallbackRows
     .filter((n) => isPreferredBroadcastCandidate(n, now))
@@ -7927,11 +7973,23 @@ function getPreferredBroadcastNodes() {
     fallback = loadSpvNodes().filter((n) => !connectedSet.has(n) && !syncActiveSet.has(String(n || '').trim()));
   }
   const preferred = PREFERRED_BROADCAST_NODES
-    .filter((node) => !syncActiveSet.has(String(node || '').trim()));
+    .filter((node) => !syncActiveSet.has(String(node || '').trim()))
+    .filter((node) => {
+      if (!dataTx) return true;
+      const row = rowsByEndpoint.get(String(node || '').trim());
+      return !row || !broadcastService.isDataRelayBad(row, now);
+    });
   const prioritySet = new Set(preferred);
   return {
     priority: Array.from(new Set(preferred)).slice(0, SEND_MAX_NODE_TRIES),
-    connected: connected.filter((node) => !prioritySet.has(node)).slice(0, SEND_CONNECTED_PEER_TRIES),
+    connected: connected
+      .filter((node) => !prioritySet.has(node))
+      .filter((node) => {
+        if (!dataTx) return true;
+        const row = rowsByEndpoint.get(String(node || '').trim());
+        return !row || !broadcastService.isDataRelayBad(row, now);
+      })
+      .slice(0, SEND_CONNECTED_PEER_TRIES),
     fallback: Array.from(new Set(fallback.filter((node) => !prioritySet.has(node)))).slice(0, SEND_MAX_NODE_TRIES),
   };
 }
@@ -8039,7 +8097,8 @@ async function broadcastRawTx(rawtx, options = {}) {
     missingInputCount: Number(spendValidation.missingInputCount || 0),
     externalInputValidationSkipped: Boolean(spendValidation.externalInputValidationSkipped),
   });
-  const plan = getPreferredBroadcastNodes();
+  const isDataTx = Number(policyValidation.dataOutputCount || 0) > 0;
+  const plan = getPreferredBroadcastNodes({ dataTx: isDataTx });
   const tries = Array.from(new Set([...(plan.priority || []), ...plan.connected, ...plan.fallback])).slice(0, SEND_MAX_NODE_TRIES);
   if (!tries.length) throw new Error('No SPV nodes configured');
   appendSendLog('broadcast_start', {
@@ -8054,6 +8113,7 @@ async function broadcastRawTx(rawtx, options = {}) {
     observationWaitMs: SEND_OBSERVATION_WAIT_MS,
     evidenceTimeoutMs: SEND_BROADCAST_EVIDENCE_TIMEOUT_MS,
     probeIntervalMs: SEND_NODE_MEMPOOL_PROBE_INTERVAL_MS,
+    dataTx: isDataTx,
   });
   appendSendLog('broadcast_context_ready', {
     txid,
@@ -8166,20 +8226,74 @@ async function broadcastRawTx(rawtx, options = {}) {
   let cursor = 0;
   let wave = 0;
   const evidenceDeadline = Date.now() + SEND_BROADCAST_EVIDENCE_TIMEOUT_MS;
-  const getHandshakeSuccessCount = () => successes.filter((item) => item.delivery === 'inv-getdata').length;
   const hasEnoughBroadcastEvidence = () => {
-    const observedNode = String(observed?.node || '').trim();
-    const externalObservation = Boolean(observed)
-      && (
-        Boolean(observed?.confirmedSeen)
-        || (observedNode && observedNode !== 'spv_index')
-      );
-    return (
-      (!requireExternalVisibility && getHandshakeSuccessCount() >= minSuccessNodes)
-      || mempoolProofHits.size >= minObservationNodes
-      || (externalObservation && successes.length >= 1)
-    );
+    const evidence = broadcastService.classifyBroadcastEvidence({
+      observed,
+      successCount: successes.length,
+      mempoolProofHitCount: mempoolProofHits.size,
+      requireVisibility: requireExternalVisibility,
+      allowPendingVisibilityCommit,
+    });
+    return evidence.networkSeen === true;
   };
+  function buildPendingBroadcastReturn(reason = 'sent_to_peer_pending_visibility') {
+    const pending = broadcastService.buildPendingBroadcastResult({
+      txid,
+      successes,
+      tries,
+      observed,
+      mempoolProofNodes: Array.from(mempoolProofHits.keys()),
+      packageResult,
+      requireVisibility: requireExternalVisibility,
+      reason,
+      status: 'broadcast_uncertain_retrying',
+    });
+    upsertPendingBroadcastMonitor({
+      txid,
+      rawtx,
+      nodes: pending.monitorNodes,
+      source: String(options?.source || 'wallet_broadcast'),
+      pendingReason: reason,
+    });
+    appendSendLog('broadcast_pending_visibility_return', {
+      txid,
+      successCount: successes.length,
+      attemptedCount: tries.length,
+      monitorNodes: pending.monitorNodes,
+      reason,
+      requireExternalVisibility,
+      allowPendingVisibilityCommit,
+      mempoolProofHitCount: mempoolProofHits.size,
+      mempoolProofNodes: Array.from(mempoolProofHits.keys()),
+    });
+    return pending;
+  }
+  function monitorVisibleUnconfirmedBroadcast(reason = 'visible_unconfirmed_broadcast') {
+    if (!requireExternalVisibility) return;
+    if (observed?.confirmedSeen === true) return;
+    const monitorNodes = Array.from(new Set([
+      ...Array.from(mempoolProofHits.keys()),
+      ...successes.map((item) => String(item?.node || '').trim()).filter(Boolean),
+      ...tries,
+    ])).slice(0, Math.max(1, BROADCAST_PENDING_MIN_NODES));
+    upsertPendingBroadcastMonitor({
+      txid,
+      rawtx,
+      nodes: monitorNodes,
+      source: String(options?.source || 'wallet_broadcast'),
+      pendingReason: reason,
+    });
+    appendSendLog('broadcast_visible_unconfirmed_monitor_added', {
+      txid,
+      monitorNodes,
+      reason,
+      successCount: successes.length,
+      mempoolProofHitCount: mempoolProofHits.size,
+      observed: Boolean(observed),
+      observedConfirmed: Boolean(observed?.confirmedSeen),
+      observedNode: String(observed?.node || ''),
+    });
+  }
   const getProbeNodes = () => Array.from(new Set(successes.map((item) => String(item?.node || '').trim()).filter(Boolean)));
   async function runEvidenceRound(roundLabel = '') {
     const probeNodes = getProbeNodes();
@@ -8437,6 +8551,7 @@ async function broadcastRawTx(rawtx, options = {}) {
         };
       }
       if (hasEvidenceNow) {
+        monitorVisibleUnconfirmedBroadcast('evidence_success_pending_confirmation');
         return {
           txid,
           provider: 'spv-p2p',
@@ -8459,7 +8574,36 @@ async function broadcastRawTx(rawtx, options = {}) {
           mempoolProofNodes: Array.from(mempoolProofHits.keys()),
           broadcastAcceptedByMempool: true,
           acceptedWithoutVisibility: !hasEvidenceNow,
+          broadcastStatus: 'broadcast_pending_confirm',
         };
+      }
+      if (allowPendingVisibilityCommit && successes.length >= 1) {
+        await runEvidenceRound(`wave_${wave}_fast_pending`);
+        if (hasEnoughBroadcastEvidence()) {
+          const proofNodes = Array.from(mempoolProofHits.keys());
+          monitorVisibleUnconfirmedBroadcast('fast_pending_evidence_success_pending_confirmation');
+          return {
+            txid,
+            provider: 'spv-p2p',
+            node: proofNodes[0] || successes[0]?.node || tries[0],
+            nodes: successes.map((x) => x.node),
+            successCount: successes.length,
+            attemptedCount: tries.length,
+            contextFormat: String(packageResult.format || ''),
+            beefFormat: 'local-chain',
+            packageTxCount: packageResult.items.length,
+            beefComplete: Boolean(packageResult.complete),
+            observed: Boolean(observed),
+            observedRelevant: Boolean(observed?.relevant),
+            observedConfirmed: Boolean(observed?.confirmedSeen),
+            observedNode: String(observed?.node || ''),
+            mempoolProofHitCount: mempoolProofHits.size,
+            mempoolProofNodes: proofNodes,
+            broadcastAcceptedByMempool: true,
+            broadcastStatus: 'broadcast_pending_confirm',
+          };
+        }
+        return buildPendingBroadcastReturn('sent_to_peer_fast_pending_visibility');
       }
       const wocFallback = await tryWocBroadcastFallback('spv_send_success_without_visibility');
       if (wocFallback) return wocFallback;
@@ -8501,6 +8645,7 @@ async function broadcastRawTx(rawtx, options = {}) {
     errors: errors.slice(0, 8),
   });
   if (handshakeSuccesses.length >= minSuccessNodes && hasEnoughBroadcastEvidence()) {
+    monitorVisibleUnconfirmedBroadcast('handshake_evidence_success_pending_confirmation');
     return {
       txid,
       provider: 'spv-p2p',
@@ -8521,6 +8666,7 @@ async function broadcastRawTx(rawtx, options = {}) {
     };
   }
   if (mempoolProofHits.size >= minObservationNodes) {
+    monitorVisibleUnconfirmedBroadcast('mempool_proof_success_pending_confirmation');
     return {
       txid,
       provider: 'spv-p2p',
@@ -8542,6 +8688,7 @@ async function broadcastRawTx(rawtx, options = {}) {
     };
   }
   if (externalObserved && observed && successes.length >= 1) {
+    monitorVisibleUnconfirmedBroadcast('external_observation_success_pending_confirmation');
     return {
       txid,
       provider: 'spv-p2p',
@@ -10535,6 +10682,7 @@ function buildOrderPlaceLockTx({
   anchorText = '',
   notifyAddresses = [],
   note = '',
+  excludeOutpoints = null,
 } = {}) {
   assertWalletSendAllowed('order_place');
   const buyerChat = deriveChatKeypairFromMnemonic(mnemonic);
@@ -10562,6 +10710,7 @@ function buildOrderPlaceLockTx({
     targetSat: buyerLockSats + (safeAnchorText ? ORDER_ANCHOR_OUTPUT_SAT : 0) + (notificationOutputs.length * SAFE_MIN_CHANGE_SAT),
     outputCount: (safeAnchorText ? 3 : 2) + notificationOutputs.length,
     dataBytes: payloadBytes,
+    excludeOutpoints,
     requireConfirmed: false,
     action: 'placing order',
   });
@@ -13526,6 +13675,7 @@ module.exports = {
   listWalletUtxoAudit,
   listTxContexts,
   getTxContextByTxid,
+  findKnownSpendersForOutpoints,
   upsertTxContext,
   ensureDirectParentTxContexts,
   scheduleDirectParentTxContextBackfill,
