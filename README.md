@@ -7,7 +7,7 @@ A decentralized P2P marketplace with on-chain escrow and built-in decentralized 
 ## 🚀 How to Use
 
 ### 1. Installation
-**Method 1: Run directly from source (Recommended)**
+**Method 1: Run directly from source **
 
 1. Download the entire project to your local machine.
 2. Extract the files to a disk with **plenty of free space**.  
